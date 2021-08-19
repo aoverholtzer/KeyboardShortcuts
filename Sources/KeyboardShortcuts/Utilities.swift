@@ -5,7 +5,8 @@ import Carbon.HIToolbox
 extension String {
 	/// Makes the string localizable.
 	var localized: String {
-		NSLocalizedString(self, bundle: .module, comment: self)
+		// NSLocalizedString(self, bundle: .module, comment: self)
+		NSLocalizedString(self, comment: self) // use app bundle
 	}
 }
 
