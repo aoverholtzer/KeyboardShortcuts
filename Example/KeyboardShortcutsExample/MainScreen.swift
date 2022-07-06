@@ -8,33 +8,23 @@ extension KeyboardShortcuts.Name {
 	static let testShortcut4 = Self("testShortcut4")
 }
 
-// TODO: Replace this with `View#onChange` when macOS 11 is out.
-extension Binding {
-	func onChange(_ handler: @escaping (Value, Value) -> Void) -> Binding<Value> {
-		.init(
-			get: {
-				wrappedValue
-			},
-			set: {
-				let oldValue = wrappedValue
-				wrappedValue = $0
-				handler(oldValue, wrappedValue)
-			}
-		)
-	}
-}
-
 private struct DynamicShortcutRecorder: View {
+	@FocusState private var isFocused: Bool
+
 	@Binding var name: KeyboardShortcuts.Name
 	@Binding var isPressed: Bool
 
 	var body: some View {
 		HStack(alignment: .firstTextBaseline) {
 			KeyboardShortcuts.Recorder(for: name)
+				.focused($isFocused)
 				.padding(.trailing, 10)
 			Text("Pressed? \(isPressed ? "👍" : "👎")")
 				.frame(width: 100, alignment: .leading)
 		}
+			.onChange(of: name) { _ in
+				isFocused = true
+			}
 	}
 }
 
@@ -49,7 +39,7 @@ private struct DynamicShortcut: View {
 		Shortcut(id: "Shortcut4", name: .testShortcut4)
 	]
 
-	@State private var shortcut = Self.shortcuts[0]
+	@State private var shortcut = Self.shortcuts.first!
 	@State private var isPressed = false
 
 	var body: some View {
@@ -58,9 +48,10 @@ private struct DynamicShortcut: View {
 				.bold()
 				.padding(.bottom, 10)
 			VStack {
-				Picker("Select shortcut:", selection: $shortcut.onChange(onShortcutChange)) {
+				Picker("Select shortcut:", selection: $shortcut) {
 					ForEach(Self.shortcuts) {
-						Text($0.id).tag($0)
+						Text($0.id)
+							.tag($0)
 					}
 				}
 				Divider()
@@ -70,6 +61,9 @@ private struct DynamicShortcut: View {
 			.frame(maxWidth: 300)
 			.padding()
 			.padding(.bottom, 20)
+			.onChange(of: shortcut) { [oldValue = shortcut] in
+				onShortcutChange(oldValue: oldValue, newValue: $0)
+			}
 	}
 
 	private func onShortcutChange(oldValue: Shortcut, newValue: Shortcut) {
@@ -90,41 +84,35 @@ private struct DoubleShortcut: View {
 	@State private var isPressed2 = false
 
 	var body: some View {
-		VStack {
-			HStack(alignment: .firstTextBaseline) {
-				KeyboardShortcuts.Recorder(for: .testShortcut1)
-					.padding(.trailing, 10)
-				Text("Pressed? \(isPressed1 ? "👍" : "👎")")
-					.frame(width: 100, alignment: .leading)
+		Form {
+			KeyboardShortcuts.Recorder("Shortcut 1:", name: .testShortcut1)
+				.overlay(alignment: .trailing) {
+					Text("Pressed? \(isPressed1 ? "👍" : "👎")")
+						.offset(x: 90)
+				}
+			KeyboardShortcuts.Recorder(for: .testShortcut2) {
+				Text("Shortcut 2:") // Intentionally using the verbose initializer for testing.
 			}
-			HStack(alignment: .firstTextBaseline) {
-				KeyboardShortcuts.Recorder(for: .testShortcut2)
-					.padding(.trailing, 10)
-				Text("Pressed? \(isPressed2 ? "👍" : "👎")")
-					.frame(width: 100, alignment: .leading)
-			}
+				.overlay(alignment: .trailing) {
+					Text("Pressed? \(isPressed2 ? "👍" : "👎")")
+						.offset(x: 90)
+				}
 			Spacer()
-			Divider()
 			Button("Reset All") {
 				KeyboardShortcuts.reset(.testShortcut1, .testShortcut2)
 			}
 		}
+			.offset(x: -40)
 			.frame(maxWidth: 300)
 			.padding()
 			.padding()
-			.onAppear {
-				KeyboardShortcuts.onKeyDown(for: .testShortcut1) {
-					isPressed1 = true
-				}
-
-				KeyboardShortcuts.onKeyUp(for: .testShortcut1) {
-					isPressed1 = false
-				}
-
-				KeyboardShortcuts.onKeyDown(for: .testShortcut2) {
-					isPressed2 = true
-				}
-
+			.onKeyboardShortcut(.testShortcut1) {
+				isPressed1 = $0 == .keyDown
+			}
+			.onKeyboardShortcut(.testShortcut2, type: .keyDown) {
+				isPressed2 = true
+			}
+			.task {
 				KeyboardShortcuts.onKeyUp(for: .testShortcut2) {
 					isPressed2 = false
 				}
@@ -132,7 +120,7 @@ private struct DoubleShortcut: View {
 	}
 }
 
-struct ContentView: View {
+struct MainScreen: View {
 	var body: some View {
 		VStack {
 			DoubleShortcut()
@@ -143,8 +131,8 @@ struct ContentView: View {
 	}
 }
 
-struct ContentView_Previews: PreviewProvider {
+struct MainScreen_Previews: PreviewProvider {
 	static var previews: some View {
-		ContentView()
+		MainScreen()
 	}
 }

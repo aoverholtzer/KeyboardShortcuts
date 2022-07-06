@@ -6,11 +6,9 @@ struct AppMain: App {
 
 	var body: some Scene {
 		WindowGroup {
-			ContentView()
-				.onAppear {
-					DispatchQueue.main.async {
-						state.createMenus()
-					}
+			MainScreen()
+				.task {
+					state.createMenus()
 				}
 		}
 	}

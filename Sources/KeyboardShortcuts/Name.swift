@@ -4,7 +4,7 @@ extension KeyboardShortcuts {
 
 	After registering it, you can use it in, for example, `KeyboardShortcut.Recorder` and `KeyboardShortcut.onKeyUp()`.
 
-	```
+	```swift
 	import KeyboardShortcuts
 
 	extension KeyboardShortcuts.Name {
@@ -19,6 +19,11 @@ extension KeyboardShortcuts {
 
 		public let rawValue: String
 		public let defaultShortcut: Shortcut?
+
+		/**
+		Get the keyboard shortcut assigned to the name.
+		*/
+		public var shortcut: Shortcut? { KeyboardShortcuts.getShortcut(for: self) }
 
 		/**
 		- Parameter name: Name of the shortcut.

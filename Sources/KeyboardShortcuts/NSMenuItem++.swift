@@ -8,6 +8,10 @@ extension NSMenuItem {
 	private func clearShortcut() {
 		keyEquivalent = ""
 		keyEquivalentModifierMask = []
+
+		if #available(macOS 12, *) {
+			allowsAutomaticKeyEquivalentLocalization = true
+		}
 	}
 
 	// TODO: Make this a getter/setter. We must first add the ability to create a `Shortcut` from a `keyEquivalent`.
@@ -20,7 +24,7 @@ extension NSMenuItem {
 
 	This method overrides `.keyEquivalent` and `.keyEquivalentModifierMask`.
 
-	```
+	```swift
 	import Cocoa
 	import KeyboardShortcuts
 
@@ -53,7 +57,7 @@ extension NSMenuItem {
 
 		set()
 
-		// TODO: Use Combine when targeting macOS 10.15.
+		// TODO: Use AsyncStream when targeting macOS 10.15.
 		AssociatedKeys.observer[self] = NotificationCenter.default.addObserver(forName: .shortcutByNameDidChange, object: nil, queue: nil) { notification in
 			guard
 				let nameInNotification = notification.userInfo?["name"] as? KeyboardShortcuts.Name,
@@ -87,6 +91,10 @@ extension NSMenuItem {
 
 			keyEquivalent = shortcut.keyEquivalent
 			keyEquivalentModifierMask = shortcut.modifiers
+
+			if #available(macOS 12, *) {
+				allowsAutomaticKeyEquivalentLocalization = false
+			}
 		}
 
 		// `TISCopyCurrentASCIICapableKeyboardLayoutInputSource` works on a background thread, but crashes when used in a `NSBackgroundActivityScheduler` task, so we ensure it's not run in that queue.

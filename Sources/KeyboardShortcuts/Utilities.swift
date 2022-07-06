@@ -1,9 +1,11 @@
-import Cocoa
 import Carbon.HIToolbox
+import SwiftUI
 
 
 extension String {
-	/// Makes the string localizable.
+	/**
+	Makes the string localizable.
+	*/
 	var localized: String {
 		// NSLocalizedString(self, bundle: .module, comment: self)
 		NSLocalizedString(self, comment: self) // use app bundle
@@ -12,7 +14,7 @@ extension String {
 
 
 extension Data {
-	var string: String? { String(data: self, encoding: .utf8) }
+	var toString: String? { String(data: self, encoding: .utf8) }
 }
 
 
@@ -118,7 +120,9 @@ extension NSEvent {
 
 
 extension NSSearchField {
-	/// Clear the search field.
+	/**
+	Clear the search field.
+	*/
 	func clear() {
 		(cell as? NSSearchFieldCell)?.cancelButtonCell?.performClick(self)
 	}
@@ -126,7 +130,9 @@ extension NSSearchField {
 
 
 extension NSAlert {
-	/// Show an alert as a window-modal sheet, or as an app-modal (window-independent) alert if the window is `nil` or not given.
+	/**
+	Show an alert as a window-modal sheet, or as an app-modal (window-independent) alert if the window is `nil` or not given.
+	*/
 	@discardableResult
 	static func showModal(
 		for window: NSWindow? = nil,
@@ -159,7 +165,9 @@ extension NSAlert {
 		}
 	}
 
-	/// Runs the alert as a window-modal sheet, or as an app-modal (window-independent) alert if the window is `nil` or not given.
+	/**
+	Runs the alert as a window-modal sheet, or as an app-modal (window-independent) alert if the window is `nil` or not given.
+	*/
 	@discardableResult
 	func runModal(for window: NSWindow? = nil) -> NSApplication.ModalResponse {
 		guard let window = window else {
@@ -172,6 +180,14 @@ extension NSAlert {
 
 		return NSApp.runModal(for: window)
 	}
+}
+
+
+enum UnicodeSymbols {
+	/**
+	Represents the Function (Fn) key on the keybord.
+	*/
+	static let functionKey = "🌐\u{FE0E}"
 }
 
 
@@ -246,6 +262,10 @@ extension NSEvent.ModifierFlags: CustomStringConvertible {
 
 		if contains(.command) {
 			description += "⌘"
+		}
+
+		if contains(.function) {
+			description += UnicodeSymbols.functionKey
 		}
 
 		return description
@@ -352,6 +372,32 @@ extension DispatchQueue {
 	*/
 	static var currentQueueLabel: String { String(cString: __dispatch_queue_get_label(nil)) }
 
-	/// Whether the current queue is a `NSBackgroundActivityScheduler` task.
+	/**
+	Whether the current queue is a `NSBackgroundActivityScheduler` task.
+	*/
 	static var isCurrentQueueNSBackgroundActivitySchedulerQueue: Bool { currentQueueLabel.hasPrefix("com.apple.xpc.activity.") }
+}
+
+
+@available(macOS 10.15, *)
+extension HorizontalAlignment {
+	private enum ControlAlignment: AlignmentID {
+		static func defaultValue(in context: ViewDimensions) -> CGFloat { // swiftlint:disable:this no_cgfloat
+			context[HorizontalAlignment.center]
+		}
+	}
+
+	fileprivate static let controlAlignment = Self(ControlAlignment.self)
+}
+
+@available(macOS 10.15, *)
+extension View {
+	func formLabel<Label: View>(@ViewBuilder _ label: () -> Label) -> some View {
+		HStack(alignment: .firstTextBaseline) {
+			label()
+			labelsHidden()
+				.alignmentGuide(.controlAlignment) { $0[.leading] }
+		}
+			.alignmentGuide(.leading) { $0[.controlAlignment] }
+	}
 }

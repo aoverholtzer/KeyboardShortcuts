@@ -1,5 +1,6 @@
 <div align="center">
-	<img width="900" src="https://github.com/sindresorhus/KeyboardShortcuts/raw/main/logo.png" alt="KeyboardShortcuts">
+	<img width="900" src="https://github.com/sindresorhus/KeyboardShortcuts/raw/main/logo-light.png#gh-light-mode-only" alt="KeyboardShortcuts">
+	<img width="900" src="https://github.com/sindresorhus/KeyboardShortcuts/raw/main/logo-dark.png#gh-dark-mode-only" alt="KeyboardShortcuts">
 	<br>
 </div>
 
@@ -17,7 +18,7 @@ I'm happy to accept more configurability and features. PR welcome! What you see 
 	<p>
 		<p>
 			<sup>
-				<a href="https://github.com/sponsors/sindresorhus">Sindre‘s open source work is supported by the community</a>
+				<a href="https://github.com/sponsors/sindresorhus">Sindre's open source work is supported by the community</a>
 			</sup>
 		</p>
 		<sup>Special thanks to:</sup>
@@ -64,17 +65,16 @@ You can then refer to this strongly-typed name in other places.
 
 You will want to make a view where the user can choose a keyboard shortcut.
 
-`PreferencesView.swift`
+`SettingsScreen.swift`
 
 ```swift
 import SwiftUI
 import KeyboardShortcuts
 
-struct PreferencesView: View {
+struct SettingsScreen: View {
 	var body: some View {
-		HStack(alignment: .firstTextBaseline) {
-			Text("Toggle Unicorn Mode:")
-			KeyboardShortcuts.Recorder(for: .toggleUnicornMode)
+		Form {
+			KeyboardShortcuts.Recorder("Toggle Unicorn Mode:", name: .toggleUnicornMode)
 		}
 	}
 }
@@ -86,17 +86,30 @@ struct PreferencesView: View {
 
 Add a listener for when the user presses their chosen keyboard shortcut.
 
-`AppDelegate.swift`
+`App.swift`
 
 ```swift
-import Cocoa
+import SwiftUI
 import KeyboardShortcuts
 
 @main
-final class AppDelegate: NSObject, NSApplicationDelegate {
-	func applicationDidFinishLaunching(_ notification: Notification) {
+struct YourApp: App {
+	@StateObject private var appState = AppState()
+
+	var body: some Scene {
+		WindowGroup {
+			// …
+		}
+		Settings {
+			SettingsScreen()
+		}
+	}
+}
+
+@MainActor
+final class AppState: ObservableObject {
+	init() {
 		KeyboardShortcuts.onKeyUp(for: .toggleUnicornMode) { [self] in
-			// The user pressed the keyboard shortcut for “unicorn mode”!
 			isUnicornMode.toggle()
 		}
 	}
@@ -113,7 +126,7 @@ You can also find a [real-world example](https://github.com/sindresorhus/Plash/b
 
 #### Cocoa
 
-Use [`KeyboardShortcuts.RecorderCocoa`](Sources/KeyboardShortcuts/RecorderCocoa.swift) instead of `KeyboardShortcuts.Recorder`.
+Using [`KeyboardShortcuts.RecorderCocoa`](Sources/KeyboardShortcuts/RecorderCocoa.swift) instead of `KeyboardShortcuts.Recorder`:
 
 ```swift
 import Cocoa
@@ -134,7 +147,7 @@ final class PreferencesViewController: NSViewController {
 This package supports [localizations](/Sources/KeyboardShortcuts/Localization). PR welcome for more!
 
 1. Fork the repo.
-2. Create a directory that has a name that uses an ISO 639 language code and optional designators, followed by the `.lproj` suffix. [More here.](https://developer.apple.com/documentation/swift_packages/localizing_package_resources)
+2. Create a directory that has a name that uses an [ISO 639-1](https://en.wikipedia.org/wiki/List_of_ISO_639-1_codes) language code and optional designators, followed by the `.lproj` suffix. [More here.](https://developer.apple.com/documentation/swift_packages/localizing_package_resources)
 3. Create a file named `Localizable.strings` under the new language directory and then copy the contents of `KeyboardShortcuts/Localization/en.lproj/Localizable.strings` to the new file that you just created.
 4. Localize and make sure to review your localization multiple times. Check for typos.
 5. Try to find someone that speaks your language to review the translation.
@@ -142,13 +155,15 @@ This package supports [localizations](/Sources/KeyboardShortcuts/Localization). 
 
 ## API
 
-[See the API docs.](https://sindresorhus.com/KeyboardShortcuts/Enums/KeyboardShortcuts.html)
+[See the API docs.](https://sindresorhus.com/KeyboardShortcuts/documentation/keyboardshortcuts/keyboardshortcuts)
 
 ## Tips
 
 #### Show a recorded keyboard shortcut in an `NSMenuItem`
 
-See [`NSMenuItem#setShortcut`](https://sindresorhus.com/KeyboardShortcuts/Extensions/NSMenuItem.html).
+<!-- TODO: Link to the docs instead when DocC supports showing type extensions. -->
+
+See [`NSMenuItem#setShortcut`](https://github.com/sindresorhus/KeyboardShortcuts/blob/0dcedd56994d871f243f3d9c76590bfd9f8aba69/Sources/KeyboardShortcuts/NSMenuItem%2B%2B.swift#L14-L41).
 
 #### Dynamic keyboard shortcuts
 
@@ -162,8 +177,38 @@ Setting a default keyboard shortcut can be useful if you're migrating from a dif
 import KeyboardShortcuts
 
 extension KeyboardShortcuts.Name {
-    static let toggleUnicornMode = Self("toggleUnicornMode", default: .init(.k, modifiers: [.command, .option]))
+	static let toggleUnicornMode = Self("toggleUnicornMode", default: .init(.k, modifiers: [.command, .option]))
 }
+```
+
+#### Get all keyboard shortcuts
+
+To get all the keyboard shortcut `Name`'s, conform `KeyboardShortcuts.Name` to `CaseIterable`.
+
+```swift
+import KeyboardShortcuts
+
+extension KeyboardShortcuts.Name {
+	static let foo = Self("foo")
+	static let bar = Self("bar")
+}
+
+extension KeyboardShortcuts.Name: CaseIterable {
+	public static let allCases: [Self] = [
+		.foo,
+		.bar
+	]
+}
+
+// …
+
+print(KeyboardShortcuts.Name.allCases)
+```
+
+And to get all the `Name`'s with a set keyboard shortcut:
+
+```swift
+print(KeyboardShortcuts.Name.allCases.filter { $0.shortcut != nil })
 ```
 
 ## FAQ
@@ -197,6 +242,10 @@ No.
 #### How can I add an app-specific keyboard shortcut that is only active when the app is?
 
 That is outside the scope of this package. You can either use [`NSEvent.addLocalMonitorForEvents`](https://developer.apple.com/documentation/appkit/nsevent/1534971-addlocalmonitorforevents), [`NSMenuItem` with keyboard shortcut](https://developer.apple.com/documentation/appkit/nsmenuitem/2880316-allowskeyequivalentwhenhidden) (it can even be hidden), or SwiftUI's [`View#keyboardShortcut()` modifier](https://developer.apple.com/documentation/swiftui/form/keyboardshortcut(_:)).
+
+#### Does it support media keys?
+
+No, since it would not work for sandboxed apps. If your app is not sandboxed, you can use [`MediaKeyTap`](https://github.com/nhurden/MediaKeyTap).
 
 #### Can you support CocoaPods or Carthage?
 
