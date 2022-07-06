@@ -26,7 +26,7 @@ extension KeyboardShortcuts {
 	```
 	*/
 	public final class RecorderCocoa: NSSearchField, NSSearchFieldDelegate {
-		private let minimumWidth: Double = 140
+		private let minimumWidth: Double = 50
 		private var eventMonitor: LocalEventMonitor?
 		private let onChange: ((_ shortcut: Shortcut?) -> Void)?
 		private var observer: NSObjectProtocol?
@@ -39,9 +39,9 @@ extension KeyboardShortcuts {
 		*/
 		public var shortcutName: Name {
 			didSet {
-				guard shortcutName != oldValue else {
-					return
-				}
+//				guard shortcutName != oldValue else {
+//					return
+//				}
 
 				setStringValue(name: shortcutName)
 
@@ -94,11 +94,23 @@ extension KeyboardShortcuts {
 			self.wantsLayer = true
 			self.translatesAutoresizingMaskIntoConstraints = false
 			setContentHuggingPriority(.defaultHigh, for: .vertical)
-			setContentHuggingPriority(.defaultHigh, for: .horizontal)
+			setContentHuggingPriority(.defaultLow, for: .horizontal)
 			widthAnchor.constraint(greaterThanOrEqualToConstant: minimumWidth).isActive = true
 
 			// Hide the cancel button when not showing the shortcut so the placeholder text is properly centered. Must be last.
 			self.cancelButton = (cell as? NSSearchFieldCell)?.cancelButtonCell
+            
+            allowsDefaultTighteningForTruncation = true
+//            self.cancelButton?.bezelStyle = .texturedRounded
+//            isBezeled = false
+//            isBordered = false
+//            bezelStyle = .squareBezel
+//            drawsBackground = false
+            wantsLayer = true
+            layer?.opacity = 0.8
+//            layer?.cornerRadius = 5
+//            layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.216).cgColor
+//            layer?.borderWidth = 1
 
 			setStringValue(name: name)
 
