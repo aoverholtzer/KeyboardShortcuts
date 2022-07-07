@@ -158,7 +158,7 @@ private var keyToCharacterMapping: [KeyboardShortcuts.Key: String] = [
 	.escape: "⎋",
 	.help: "?⃝",
 	.home: "↖",
-	.space: "⎵",
+	.space: NSLocalizedString("Space", comment: ""),//"⎵",
 	.tab: "⇥",
 	.pageUp: "⇞",
 	.pageDown: "⇟",
@@ -297,6 +297,6 @@ extension KeyboardShortcuts.Shortcut: CustomStringConvertible {
 	```
 	*/
 	public var description: String {
-		modifiers.description + (keyToCharacter()?.uppercased() ?? "�")
+		modifiers.description + (keyToCharacter()?.capitalized ?? "�")
 	}
 }
