@@ -185,7 +185,9 @@ private var keyToCharacterMapping: [KeyboardShortcuts.Key: String] = [
 	.f17: "F17",
 	.f18: "F18",
 	.f19: "F19",
-	.f20: "F20"
+	.f20: "F20",
+    .jisEisu: "英数",
+    .jisKana: "かな"
 ]
 
 private func stringFromKeyCode(_ keyCode: Int) -> String {

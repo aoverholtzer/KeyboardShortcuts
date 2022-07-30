@@ -138,6 +138,9 @@ extension KeyboardShortcuts {
 		public static let keypadMinus = Self(kVK_ANSI_KeypadMinus)
 		public static let keypadMultiply = Self(kVK_ANSI_KeypadMultiply)
 		public static let keypadPlus = Self(kVK_ANSI_KeypadPlus)
+        
+        public static let jisEisu = Self(kVK_JIS_Eisu)
+        public static let jisKana = Self(kVK_JIS_Kana)
 
 		// MARK: Properties
 
