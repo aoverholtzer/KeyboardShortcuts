@@ -73,7 +73,7 @@ enum CarbonKeyboardShortcuts {
 			UInt32(shortcut.carbonModifiers),
 			EventHotKeyID(signature: hotKeySignature, id: UInt32(hotKeyId)),
 			GetEventDispatcherTarget(),
-			0,
+            OptionBits(kEventHotKeyExclusive),
 			&eventHotKey
 		)
 

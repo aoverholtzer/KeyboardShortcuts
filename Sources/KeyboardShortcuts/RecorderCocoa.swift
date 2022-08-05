@@ -163,6 +163,13 @@ extension KeyboardShortcuts {
 			placeholderString = "record_shortcut".localized
 			showsCancelButton = !stringValue.isEmpty
 			KeyboardShortcuts.isPaused = false
+            
+            if stringValue.isEmpty, let shortcut = KeyboardShortcuts.getShortcut(for: shortcutName) {
+                // if control is blank (no shortcut set) but we have a shortcut (e.g., a default),
+                // then update control with that shortcut
+                self.stringValue = "\(shortcut)"
+                self.showsCancelButton = true
+            }
 		}
 
 		// Prevent the control from receiving the initial focus.
