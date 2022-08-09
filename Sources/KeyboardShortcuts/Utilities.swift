@@ -210,6 +210,10 @@ extension NSEvent.ModifierFlags {
 		if contains(.command) {
 			modifierFlags |= cmdKey
 		}
+        
+        if contains(.function) {
+            modifierFlags |= kVK_Function
+        }
 
 		return modifierFlags
 	}
@@ -232,6 +236,10 @@ extension NSEvent.ModifierFlags {
 		if carbon & cmdKey == cmdKey {
 			insert(.command)
 		}
+        
+        if carbon & kVK_Function == kVK_Function {
+            insert(.function)
+        }
 	}
 }
 
