@@ -29,6 +29,7 @@ extension KeyboardShortcuts {
 		private let minimumWidth: Double = 120
 		private var eventMonitor: LocalEventMonitor?
 		private let onChange: ((_ shortcut: Shortcut?) -> Void)?
+        private let onInfoClicked: (() -> Void)?
 		private var observer: NSObjectProtocol?
 		private var canBecomeKey = false
 
@@ -66,13 +67,41 @@ extension KeyboardShortcuts {
 		}
 
 		private var cancelButton: NSButtonCell?
+        
+        private lazy var infoButton: NSButtonCell? = {
+            if #available(macOS 11.0, *) {
+                let button = NSButtonCell(imageCell: NSImage(systemSymbolName: "info.circle.fill", accessibilityDescription: "info")!)
+                button.target = self
+                button.action = #selector(showInfo)
+//                button.bezelStyle = cancelButton?.bezelStyle ?? .circular
+                button.isBordered = false
+                button.isBezeled = false
+                return button
+            } else {
+                return nil
+            }
+        }()
+        
+        @objc private func showInfo() {
+            blur()
+            onInfoClicked?()
+        }
 
-		private var showsCancelButton: Bool {
-			get { (cell as? NSSearchFieldCell)?.cancelButtonCell != nil }
-			set {
-				(cell as? NSSearchFieldCell)?.cancelButtonCell = newValue ? cancelButton : nil
-			}
-		}
+        private func updateCancelButton() {
+//            !stringValue.isEmpty && getShortcut(for: shortcutName)?.isDefault != true
+            if let shortcut = getShortcut(for: shortcutName),
+               shortcut.isDefault == true {
+                (cell as? NSSearchFieldCell)?.cancelButtonCell = infoButton
+            } else {
+                (cell as? NSSearchFieldCell)?.cancelButtonCell = stringValue.isEmpty ? nil : cancelButton
+            }
+        }
+//		private var showsCancelButton: Bool {
+//			get { (cell as? NSSearchFieldCell)?.cancelButtonCell != nil }
+//			set {
+//				(cell as? NSSearchFieldCell)?.cancelButtonCell = newValue ? cancelButton : nil
+//			}
+//		}
 
 		/**
 		- Parameter name: Strongly-typed keyboard shortcut name.
@@ -80,10 +109,12 @@ extension KeyboardShortcuts {
 		*/
 		public required init(
 			for name: Name,
-			onChange: ((_ shortcut: Shortcut?) -> Void)? = nil
+			onChange: ((_ shortcut: Shortcut?) -> Void)? = nil,
+            onInfoClicked: (()->Void)? = nil
 		) {
 			self.shortcutName = name
 			self.onChange = onChange
+            self.onInfoClicked = onInfoClicked
 
 			super.init(frame: .zero)
 			self.delegate = self
@@ -127,7 +158,8 @@ extension KeyboardShortcuts {
             stringValue = shortcut.map { "\($0)" } ?? ""
 
 			// If `stringValue` is empty, hide the cancel button to let the placeholder center.
-            showsCancelButton = !stringValue.isEmpty && shortcut?.isDefault != true
+//            showsCancelButton = !stringValue.isEmpty && shortcut?.isDefault != true
+            updateCancelButton()
 		}
 
 		private func setUpEvents() {
@@ -150,8 +182,8 @@ extension KeyboardShortcuts {
 				saveShortcut(nil)
 			}
 
-			showsCancelButton = !stringValue.isEmpty && getShortcut(for: shortcutName)?.isDefault != true
-
+//			showsCancelButton = !stringValue.isEmpty && getShortcut(for: shortcutName)?.isDefault != true
+            updateCancelButton()
 			if stringValue.isEmpty {
 				// Hack to ensure that the placeholder centers after the above `showsCancelButton` setter.
 				focus()
@@ -162,14 +194,16 @@ extension KeyboardShortcuts {
 		public func controlTextDidEndEditing(_ object: Notification) {
 			eventMonitor = nil
 			placeholderString = "record_shortcut".localized
-			showsCancelButton = !stringValue.isEmpty && getShortcut(for: shortcutName)?.isDefault != true
+//			showsCancelButton = !stringValue.isEmpty && getShortcut(for: shortcutName)?.isDefault != true
+            updateCancelButton()
 			KeyboardShortcuts.isPaused = false
             
             if stringValue.isEmpty, let shortcut = KeyboardShortcuts.getShortcut(for: shortcutName) {
                 // if control is blank (no shortcut set) but we have a shortcut (e.g., a default),
                 // then update control with that shortcut
                 self.stringValue = "\(shortcut)"
-                self.showsCancelButton = shortcut.isDefault != true
+//                self.showsCancelButton = shortcut.isDefault != true
+                updateCancelButton()
             }
 		}
 
@@ -192,7 +226,8 @@ extension KeyboardShortcuts {
 			}
 
 			placeholderString = "press_shortcut".localized
-			showsCancelButton = !stringValue.isEmpty && getShortcut(for: shortcutName)?.isDefault != true
+//			showsCancelButton = !stringValue.isEmpty && getShortcut(for: shortcutName)?.isDefault != true
+            updateCancelButton()
 			hideCaret()
 			KeyboardShortcuts.isPaused = true // The position here matters.
 
@@ -285,7 +320,8 @@ extension KeyboardShortcuts {
 				}
 
 				self.stringValue = "\(shortcut)"
-				self.showsCancelButton = shortcut.isDefault != true
+//				self.showsCancelButton = shortcut.isDefault != true
+                self.updateCancelButton()
 
 				self.saveShortcut(shortcut)
 				self.blur()

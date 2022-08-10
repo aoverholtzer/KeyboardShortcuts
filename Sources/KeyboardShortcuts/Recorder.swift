@@ -7,9 +7,10 @@ extension KeyboardShortcuts {
 
 		let name: Name
 		let onChange: ((_ shortcut: Shortcut?) -> Void)?
+        let onInfoClicked: (()->Void)?
 
 		func makeNSView(context: Context) -> NSViewType {
-			.init(for: name, onChange: onChange)
+			.init(for: name, onChange: onChange, onInfoClicked: onInfoClicked)
 		}
 
 		func updateNSView(_ nsView: NSViewType, context: Context) {
@@ -39,20 +40,24 @@ extension KeyboardShortcuts {
 	}
 	```
 	*/
-	public struct Recorder<Label: View>: View { // swiftlint:disable:this type_name
+    public struct Recorder<Label: View, Content:View>: View { // swiftlint:disable:this type_name
 		private let name: Name
 		private let onChange: ((Shortcut?) -> Void)?
+        private let infoContent: ()->Content
 		private let hasLabel: Bool
 		private let label: Label
+        @State private var showPopover = false
 
 		init(
 			for name: Name,
 			onChange: ((Shortcut?) -> Void)? = nil,
+            @ViewBuilder infoContent: @escaping ()->Content,
 			hasLabel: Bool,
 			@ViewBuilder label: () -> Label
 		) {
 			self.name = name
 			self.onChange = onChange
+            self.infoContent = infoContent
 			self.hasLabel = hasLabel
 			self.label = label()
 		}
@@ -61,16 +66,23 @@ extension KeyboardShortcuts {
 			if hasLabel {
 				_Recorder(
 					name: name,
-					onChange: onChange
+					onChange: onChange,
+                    onInfoClicked: {
+                        showPopover = true
+                    }
 				)
-					.formLabel {
-						label
-					}
+                .formLabel {
+                    label
+                }
 			} else {
 				_Recorder(
 					name: name,
-					onChange: onChange
+					onChange: onChange,
+                    onInfoClicked: {
+                        showPopover = true
+                    }
 				)
+                .popover(isPresented: $showPopover, content: infoContent)
 			}
 		}
 	}
@@ -84,18 +96,39 @@ extension KeyboardShortcuts.Recorder where Label == EmptyView {
 	*/
 	public init(
 		for name: KeyboardShortcuts.Name,
-		onChange: ((KeyboardShortcuts.Shortcut?) -> Void)? = nil
+		onChange: ((KeyboardShortcuts.Shortcut?) -> Void)? = nil,
+        @ViewBuilder infoContent: @escaping ()->Content
 	) {
 		self.init(
 			for: name,
 			onChange: onChange,
+            infoContent: infoContent,
 			hasLabel: false
 		) {}
 	}
 }
 
 @available(macOS 10.15, *)
-extension KeyboardShortcuts.Recorder where Label == Text {
+extension KeyboardShortcuts.Recorder where Label == EmptyView, Content == EmptyView {
+    /**
+    - Parameter name: Strongly-typed keyboard shortcut name.
+    - Parameter onChange: Callback which will be called when the keyboard shortcut is changed/removed by the user. This can be useful when you need more control. For example, when migrating from a different keyboard shortcut solution and you need to store the keyboard shortcut somewhere yourself instead of relying on the built-in storage. However, it's strongly recommended to just rely on the built-in storage when possible.
+    */
+    public init(
+        for name: KeyboardShortcuts.Name,
+        onChange: ((KeyboardShortcuts.Shortcut?) -> Void)? = nil
+    ) {
+        self.init(
+            for: name,
+            onChange: onChange,
+            infoContent: {},
+            hasLabel: false
+        ) {}
+    }
+}
+
+@available(macOS 10.15, *)
+extension KeyboardShortcuts.Recorder where Label == Text, Content == EmptyView {
 	/**
 	- Parameter title: The title of the keyboard shortcut recorder, describing its purpose.
 	- Parameter name: Strongly-typed keyboard shortcut name.
@@ -109,6 +142,7 @@ extension KeyboardShortcuts.Recorder where Label == Text {
 		self.init(
 			for: name,
 			onChange: onChange,
+            infoContent: { EmptyView() },
 			hasLabel: true
 		) {
 			Text(title)
@@ -126,11 +160,13 @@ extension KeyboardShortcuts.Recorder {
 	public init(
 		for name: KeyboardShortcuts.Name,
 		onChange: ((KeyboardShortcuts.Shortcut?) -> Void)? = nil,
+        @ViewBuilder infoContent: @escaping ()->Content,
 		@ViewBuilder label: () -> Label
 	) {
 		self.init(
 			for: name,
 			onChange: onChange,
+            infoContent: infoContent,
 			hasLabel: true,
 			label: label
 		)
