@@ -207,7 +207,8 @@ public enum KeyboardShortcuts {
 	public static func setShortcut(_ shortcut: Shortcut?, for name: Name) {
 		guard let shortcut = shortcut else {
             // clear shortcut (or reset to default)
-            if let defaultShortcut = name.defaultShortcut {
+            if var defaultShortcut = name.defaultShortcut {
+                defaultShortcut.isDefault = true
                 userDefaultsSet(name: name, shortcut: defaultShortcut)
             } else {
                 userDefaultsRemove(name: name)

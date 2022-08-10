@@ -33,12 +33,25 @@ extension KeyboardShortcuts {
 			self.rawValue = name
 			self.defaultShortcut = defaultShortcut
 
-			if
-				let defaultShortcut = defaultShortcut,
-				!userDefaultsContains(name: self)
-			{
-				setShortcut(defaultShortcut, for: self)
-			}
+            if var defaultShortcut = defaultShortcut {
+                defaultShortcut.isDefault = true
+                if let currentShortcut = getShortcut(for: self) {
+                    if currentShortcut.isDefault == true,
+                       currentShortcut != defaultShortcut {
+                        // override with new default
+                        setShortcut(defaultShortcut, for: self)
+                    }
+                } else {
+                    // set default
+                    setShortcut(defaultShortcut, for: self)
+                }
+            } else {
+                if let currentShortcut = getShortcut(for: self),
+                   currentShortcut.isDefault == true {
+                    // clear default
+                    setShortcut(nil, for: self)
+                }
+            }
 		}
 	}
 }

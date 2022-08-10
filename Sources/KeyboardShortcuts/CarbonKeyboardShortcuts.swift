@@ -66,6 +66,7 @@ enum CarbonKeyboardShortcuts {
 		onKeyUp: @escaping (KeyboardShortcuts.Shortcut) -> Void
 	) {
 		hotKeyId += 1
+        let options = shortcut.isDefault == true ? OptionBits(kEventHotKeyExclusive) : 0
 
 		var eventHotKey: EventHotKeyRef?
 		let registerError = RegisterEventHotKey(
@@ -73,7 +74,7 @@ enum CarbonKeyboardShortcuts {
 			UInt32(shortcut.carbonModifiers),
 			EventHotKeyID(signature: hotKeySignature, id: UInt32(hotKeyId)),
 			GetEventDispatcherTarget(),
-            OptionBits(kEventHotKeyExclusive),
+            options,
 			&eventHotKey
 		)
 

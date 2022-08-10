@@ -38,6 +38,9 @@ extension KeyboardShortcuts {
 		You most likely don't need this.
 		*/
 		public let carbonModifiers: Int
+        
+        // hack by adam
+        public var isDefault: Bool?
 
 		/**
 		Initialize from a strongly-typed key and modifiers.
