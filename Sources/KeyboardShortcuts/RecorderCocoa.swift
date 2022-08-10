@@ -123,10 +123,11 @@ extension KeyboardShortcuts {
 		}
 
 		private func setStringValue(name: KeyboardShortcuts.Name) {
-			stringValue = getShortcut(for: shortcutName).map { "\($0)" } ?? ""
+			let shortcut = getShortcut(for: shortcutName)
+            stringValue = shortcut.map { "\($0)" } ?? ""
 
 			// If `stringValue` is empty, hide the cancel button to let the placeholder center.
-			showsCancelButton = !stringValue.isEmpty
+            showsCancelButton = !stringValue.isEmpty && shortcut?.isDefault != true
 		}
 
 		private func setUpEvents() {
@@ -149,7 +150,7 @@ extension KeyboardShortcuts {
 				saveShortcut(nil)
 			}
 
-			showsCancelButton = !stringValue.isEmpty
+			showsCancelButton = !stringValue.isEmpty && getShortcut(for: shortcutName)?.isDefault != true
 
 			if stringValue.isEmpty {
 				// Hack to ensure that the placeholder centers after the above `showsCancelButton` setter.
@@ -161,14 +162,14 @@ extension KeyboardShortcuts {
 		public func controlTextDidEndEditing(_ object: Notification) {
 			eventMonitor = nil
 			placeholderString = "record_shortcut".localized
-			showsCancelButton = !stringValue.isEmpty
+			showsCancelButton = !stringValue.isEmpty && getShortcut(for: shortcutName)?.isDefault != true
 			KeyboardShortcuts.isPaused = false
             
             if stringValue.isEmpty, let shortcut = KeyboardShortcuts.getShortcut(for: shortcutName) {
                 // if control is blank (no shortcut set) but we have a shortcut (e.g., a default),
                 // then update control with that shortcut
                 self.stringValue = "\(shortcut)"
-                self.showsCancelButton = true
+                self.showsCancelButton = shortcut.isDefault != true
             }
 		}
 
@@ -191,7 +192,7 @@ extension KeyboardShortcuts {
 			}
 
 			placeholderString = "press_shortcut".localized
-			showsCancelButton = !stringValue.isEmpty
+			showsCancelButton = !stringValue.isEmpty && getShortcut(for: shortcutName)?.isDefault != true
 			hideCaret()
 			KeyboardShortcuts.isPaused = true // The position here matters.
 
@@ -284,7 +285,7 @@ extension KeyboardShortcuts {
 				}
 
 				self.stringValue = "\(shortcut)"
-				self.showsCancelButton = true
+				self.showsCancelButton = shortcut.isDefault != true
 
 				self.saveShortcut(shortcut)
 				self.blur()
