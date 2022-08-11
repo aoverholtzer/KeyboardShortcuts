@@ -137,8 +137,8 @@ extension KeyboardShortcuts {
 //            isBordered = false
 //            bezelStyle = .squareBezel
 //            drawsBackground = false
-            wantsLayer = true
-            layer?.opacity = 0.8
+           // wantsLayer = true
+           // layer?.opacity = 0.8
 //            layer?.cornerRadius = 5
 //            layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.216).cgColor
 //            layer?.borderWidth = 1
