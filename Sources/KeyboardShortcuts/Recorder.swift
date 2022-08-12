@@ -43,7 +43,7 @@ extension KeyboardShortcuts {
     public struct Recorder<Label: View, Content:View>: View { // swiftlint:disable:this type_name
 		private let name: Name
 		private let onChange: ((Shortcut?) -> Void)?
-        private let infoContent: ()->Content
+        private let infoContent: (()->Content)?
 		private let hasLabel: Bool
 		private let label: Label
         @State private var showPopover = false
@@ -51,7 +51,7 @@ extension KeyboardShortcuts {
 		init(
 			for name: Name,
 			onChange: ((Shortcut?) -> Void)? = nil,
-            @ViewBuilder infoContent: @escaping ()->Content,
+            infoContent: (()->Content)?,
 			hasLabel: Bool,
 			@ViewBuilder label: () -> Label
 		) {
@@ -67,22 +67,23 @@ extension KeyboardShortcuts {
 				_Recorder(
 					name: name,
 					onChange: onChange,
-                    onInfoClicked: {
+                    onInfoClicked: infoContent == nil ? nil : {
                         showPopover = true
                     }
 				)
                 .formLabel {
                     label
                 }
+                .popover(isPresented: $showPopover, content: { infoContent?() })
 			} else {
 				_Recorder(
 					name: name,
 					onChange: onChange,
-                    onInfoClicked: {
+                    onInfoClicked: infoContent == nil ? nil : {
                         showPopover = true
                     }
 				)
-                .popover(isPresented: $showPopover, content: infoContent)
+                .popover(isPresented: $showPopover, content: { infoContent?() })
 			}
 		}
 	}
@@ -121,7 +122,7 @@ extension KeyboardShortcuts.Recorder where Label == EmptyView, Content == EmptyV
         self.init(
             for: name,
             onChange: onChange,
-            infoContent: {},
+            infoContent: nil,
             hasLabel: false
         ) {}
     }
@@ -142,7 +143,7 @@ extension KeyboardShortcuts.Recorder where Label == Text, Content == EmptyView {
 		self.init(
 			for: name,
 			onChange: onChange,
-            infoContent: { EmptyView() },
+            infoContent: nil,
 			hasLabel: true
 		) {
 			Text(title)

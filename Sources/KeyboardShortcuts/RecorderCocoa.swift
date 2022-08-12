@@ -91,7 +91,7 @@ extension KeyboardShortcuts {
 //            !stringValue.isEmpty && getShortcut(for: shortcutName)?.isDefault != true
             if let shortcut = getShortcut(for: shortcutName),
                shortcut.isDefault == true {
-                (cell as? NSSearchFieldCell)?.cancelButtonCell = infoButton
+                (cell as? NSSearchFieldCell)?.cancelButtonCell = onInfoClicked == nil ? nil : infoButton
             } else {
                 (cell as? NSSearchFieldCell)?.cancelButtonCell = stringValue.isEmpty ? nil : cancelButton
             }
