@@ -303,6 +303,10 @@ extension KeyboardShortcuts.Shortcut: CustomStringConvertible {
 	```
 	*/
 	public var description: String {
-		modifiers.description + (keyToCharacter()?.capitalized ?? "�")
+        if modifiers.contains(.function), key?.isFunctionKey == true {
+            return modifiers.subtracting(.function).description + (keyToCharacter()?.capitalized ?? "�")
+        } else {
+            return modifiers.description + (keyToCharacter()?.capitalized ?? "�")
+        }
 	}
 }
