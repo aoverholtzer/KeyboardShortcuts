@@ -30,7 +30,7 @@ extension KeyboardShortcuts {
 		private var eventMonitor: LocalEventMonitor?
 		private let onChange: ((_ shortcut: Shortcut?) -> Void)?
         private let onInfoClicked: (() -> Void)?
-		private var observer: NSObjectProtocol?
+        private var observers:[NSObjectProtocol]?
 		private var canBecomeKey = false
 
 		/**
@@ -163,17 +163,23 @@ extension KeyboardShortcuts {
 		}
 
 		private func setUpEvents() {
-			observer = NotificationCenter.default.addObserver(forName: .shortcutByNameDidChange, object: nil, queue: nil) { [weak self] notification in
-				guard
-					let self = self,
-					let nameInNotification = notification.userInfo?["name"] as? KeyboardShortcuts.Name,
-					nameInNotification == self.shortcutName
-				else {
-					return
-				}
+			observers = [
+                NotificationCenter.default.addObserver(forName: .shortcutByNameDidChange, object: nil, queue: nil) { [weak self] notification in
+                    guard
+                        let self = self,
+                        let nameInNotification = notification.userInfo?["name"] as? KeyboardShortcuts.Name,
+                        nameInNotification == self.shortcutName
+                    else {
+                        return
+                    }
 
-				self.setStringValue(name: nameInNotification)
-			}
+                    self.setStringValue(name: nameInNotification)
+                },
+                DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name(kTISNotifySelectedKeyboardInputSourceChanged as String), object: nil, queue: nil) { [weak self] notification in
+                    guard let self = self else { return }
+                    self.setStringValue(name: self.shortcutName)
+                },
+            ]
 		}
 
 		/// :nodoc:
