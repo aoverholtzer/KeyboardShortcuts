@@ -21,7 +21,7 @@ extension KeyboardShortcuts {
 	/**
 	A SwiftUI `View` that lets the user record a keyboard shortcut.
 
-	You would usually put this in your preferences window.
+	You would usually put this in your settings window.
 
 	It automatically prevents choosing a keyboard shortcut that is already taken by the system or by the app's main menu by showing a user-friendly alert to the user.
 
@@ -64,17 +64,32 @@ extension KeyboardShortcuts {
 
 		public var body: some View {
 			if hasLabel {
-				_Recorder(
-					name: name,
-					onChange: onChange,
-                    onInfoClicked: infoContent == nil ? nil : {
-                        showPopover = true
+				if #available(macOS 13, *) {
+					LabeledContent {
+						_Recorder(
+							name: name,
+							onChange: onChange,
+                            onInfoClicked: infoContent == nil ? nil : {
+                                showPopover = true
+                            }
+						)
+					} label: {
+						label
+					}
+                    .popover(isPresented: $showPopover, content: { infoContent?() })
+				} else {
+					_Recorder(
+						name: name,
+						onChange: onChange,
+                        onInfoClicked: infoContent == nil ? nil : {
+                            showPopover = true
+                        }
+					)
+                    .formLabel {
+                        label
                     }
-				)
-                .formLabel {
-                    label
-                }
-                .popover(isPresented: $showPopover, content: { infoContent?() })
+                    .popover(isPresented: $showPopover, content: { infoContent?() })
+				}
 			} else {
 				_Recorder(
 					name: name,
@@ -86,26 +101,6 @@ extension KeyboardShortcuts {
                 .popover(isPresented: $showPopover, content: { infoContent?() })
 			}
 		}
-	}
-}
-
-@available(macOS 10.15, *)
-extension KeyboardShortcuts.Recorder where Label == EmptyView {
-	/**
-	- Parameter name: Strongly-typed keyboard shortcut name.
-	- Parameter onChange: Callback which will be called when the keyboard shortcut is changed/removed by the user. This can be useful when you need more control. For example, when migrating from a different keyboard shortcut solution and you need to store the keyboard shortcut somewhere yourself instead of relying on the built-in storage. However, it's strongly recommended to just rely on the built-in storage when possible.
-	*/
-	public init(
-		for name: KeyboardShortcuts.Name,
-		onChange: ((KeyboardShortcuts.Shortcut?) -> Void)? = nil,
-        @ViewBuilder infoContent: @escaping ()->Content
-	) {
-		self.init(
-			for: name,
-			onChange: onChange,
-            infoContent: infoContent,
-			hasLabel: false
-		) {}
 	}
 }
 
