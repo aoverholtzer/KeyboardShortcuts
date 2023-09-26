@@ -1,4 +1,4 @@
-import Cocoa
+import AppKit
 import Carbon.HIToolbox
 
 extension KeyboardShortcuts {
@@ -211,7 +211,7 @@ private var keyToCharacterMapping: [KeyboardShortcuts.Key: String] = [
 	.keypadEquals: "=\u{20e3}",
 	.keypadMinus: "-\u{20e3}",
 	.keypadMultiply: "*\u{20e3}",
-	.keypadPlus: "+\u{20e3}"
+	.keypadPlus: "+\u{20e3}",
     
     // Switcheroo special
     .jisEisu: "英数",
