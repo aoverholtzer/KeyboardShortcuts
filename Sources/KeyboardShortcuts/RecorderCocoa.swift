@@ -1,21 +1,22 @@
-import Cocoa
+#if os(macOS)
+import AppKit
 import Carbon.HIToolbox
 
 extension KeyboardShortcuts {
 	/**
 	A `NSView` that lets the user record a keyboard shortcut.
 
-	You would usually put this in your preferences window.
+	You would usually put this in your settings window.
 
 	It automatically prevents choosing a keyboard shortcut that is already taken by the system or by the app's main menu by showing a user-friendly alert to the user.
 
 	It takes care of storing the keyboard shortcut in `UserDefaults` for you.
 
 	```swift
-	import Cocoa
+	import AppKit
 	import KeyboardShortcuts
 
-	final class PreferencesViewController: NSViewController {
+	final class SettingsViewController: NSViewController {
 		override func loadView() {
 			view = NSView()
 
@@ -26,11 +27,13 @@ extension KeyboardShortcuts {
 	```
 	*/
 	public final class RecorderCocoa: NSSearchField, NSSearchFieldDelegate {
-		private let minimumWidth: Double = 120
-		private var eventMonitor: LocalEventMonitor?
+		private let minimumWidth = 120.0
 		private let onChange: ((_ shortcut: Shortcut?) -> Void)?
-		private var observer: NSObjectProtocol?
 		private var canBecomeKey = false
+		private var eventMonitor: LocalEventMonitor?
+		private var shortcutsNameChangeObserver: NSObjectProtocol?
+		private var windowDidResignKeyObserver: NSObjectProtocol?
+		private var windowDidBecomeKeyObserver: NSObjectProtocol?
 
 		/**
 		The shortcut name for the recorder.
@@ -92,7 +95,6 @@ extension KeyboardShortcuts {
 			(cell as? NSSearchFieldCell)?.searchButtonCell = nil
 
 			self.wantsLayer = true
-			self.translatesAutoresizingMaskIntoConstraints = false
 			setContentHuggingPriority(.defaultHigh, for: .vertical)
 			setContentHuggingPriority(.defaultLow, for: .horizontal)
 			widthAnchor.constraint(greaterThanOrEqualToConstant: minimumWidth).isActive = true
@@ -130,16 +132,33 @@ extension KeyboardShortcuts {
 		}
 
 		private func setUpEvents() {
-			observer = NotificationCenter.default.addObserver(forName: .shortcutByNameDidChange, object: nil, queue: nil) { [weak self] notification in
+			shortcutsNameChangeObserver = NotificationCenter.default.addObserver(forName: .shortcutByNameDidChange, object: nil, queue: nil) { [weak self] notification in
 				guard
-					let self = self,
+					let self,
 					let nameInNotification = notification.userInfo?["name"] as? KeyboardShortcuts.Name,
-					nameInNotification == self.shortcutName
+					nameInNotification == shortcutName
 				else {
 					return
 				}
 
-				self.setStringValue(name: nameInNotification)
+				setStringValue(name: nameInNotification)
+			}
+		}
+
+		private func endRecording() {
+			eventMonitor = nil
+			placeholderString = "record_shortcut".localized
+			showsCancelButton = !stringValue.isEmpty
+			restoreCaret()
+			KeyboardShortcuts.isPaused = false
+		}
+
+		private func preventBecomingKey() {
+			canBecomeKey = false
+
+			// Prevent the control from receiving the initial focus.
+			DispatchQueue.main.async { [self] in
+				canBecomeKey = true
 			}
 		}
 
@@ -159,20 +178,38 @@ extension KeyboardShortcuts {
 
 		/// :nodoc:
 		public func controlTextDidEndEditing(_ object: Notification) {
-			eventMonitor = nil
-			placeholderString = "record_shortcut".localized
-			showsCancelButton = !stringValue.isEmpty
-			KeyboardShortcuts.isPaused = false
+			endRecording()
 		}
 
-		// Prevent the control from receiving the initial focus.
 		/// :nodoc:
 		override public func viewDidMoveToWindow() {
-			guard window != nil else {
+			guard let window else {
+				windowDidResignKeyObserver = nil
+				windowDidBecomeKeyObserver = nil
+				endRecording()
 				return
 			}
 
-			canBecomeKey = true
+			// Ensures the recorder stops when the window is hidden.
+			// This is especially important for Settings windows, which as of macOS 13.5, only hides instead of closes when you click the close button.
+			windowDidResignKeyObserver = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: nil) { [weak self] _ in
+				guard
+					let self,
+					let window = self.window
+				else {
+					return
+				}
+
+				endRecording()
+				window.makeFirstResponder(nil)
+			}
+
+			// Ensures the recorder does not receive initial focus when a hidden window becomes unhidden.
+			windowDidBecomeKeyObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: nil) { [weak self] _ in
+				self?.preventBecomingKey()
+			}
+
+			preventBecomingKey()
 		}
 
 		/// :nodoc:
@@ -189,19 +226,19 @@ extension KeyboardShortcuts {
 			KeyboardShortcuts.isPaused = true // The position here matters.
 
 			eventMonitor = LocalEventMonitor(events: [.keyDown, .leftMouseUp, .rightMouseUp]) { [weak self] event in
-				guard let self = self else {
+				guard let self else {
 					return nil
 				}
 
-				let clickPoint = self.convert(event.locationInWindow, from: nil)
+				let clickPoint = convert(event.locationInWindow, from: nil)
 				let clickMargin = 3.0
 
 				if
 					event.type == .leftMouseUp || event.type == .rightMouseUp,
-					!self.bounds.insetBy(dx: -clickMargin, dy: -clickMargin).contains(clickPoint)
+					!bounds.insetBy(dx: -clickMargin, dy: -clickMargin).contains(clickPoint)
 				{
-					self.blur()
-					return nil
+					blur()
+					return event
 				}
 
 				guard event.isKeyEvent else {
@@ -212,7 +249,7 @@ extension KeyboardShortcuts {
 					event.modifiers.isEmpty,
 					event.specialKey == .tab
 				{
-					self.blur()
+					blur()
 
 					// We intentionally bubble up the event so it can focus the next responder.
 					return event
@@ -222,7 +259,7 @@ extension KeyboardShortcuts {
 					event.modifiers.isEmpty,
 					event.keyCode == kVK_Escape // TODO: Make this strongly typed.
 				{
-					self.blur()
+					blur()
 					return nil
 				}
 
@@ -232,7 +269,7 @@ extension KeyboardShortcuts {
 						|| event.specialKey == .deleteForward
 						|| event.specialKey == .backspace
 				{
-					self.clear()
+					clear()
 					return nil
 				}
 
@@ -249,38 +286,45 @@ extension KeyboardShortcuts {
 
 				if let menuItem = shortcut.takenByMainMenu {
 					// TODO: Find a better way to make it possible to dismiss the alert by pressing "Enter". How can we make the input automatically temporarily lose focus while the alert is open?
-					self.blur()
+					blur()
 
 					NSAlert.showModal(
-						for: self.window,
+						for: window,
 						title: String.localizedStringWithFormat("keyboard_shortcut_used_by_menu_item".localized, menuItem.title)
 					)
 
-					self.focus()
+					focus()
 
 					return nil
 				}
 
-				guard !shortcut.isTakenBySystem else {
-					self.blur()
+				if shortcut.isTakenBySystem {
+					blur()
 
-					NSAlert.showModal(
-						for: self.window,
+					let modalResponse = NSAlert.showModal(
+						for: window,
 						title: "keyboard_shortcut_used_by_system".localized,
-						// TODO: Add button to offer to open the relevant system preference pane for the user.
-						message: "keyboard_shortcuts_can_be_changed".localized
+						// TODO: Add button to offer to open the relevant system settings pane for the user.
+						message: "keyboard_shortcuts_can_be_changed".localized,
+						buttonTitles: [
+							"ok".localized,
+							"force_use_shortcut".localized
+						]
 					)
 
-					self.focus()
+					focus()
 
-					return nil
+					// If the user has selected "Use Anyway" in the dialog (the second option), we'll continue setting the keyboard shorcut even though it's reserved by the system.
+					guard modalResponse == .alertSecondButtonReturn else {
+						return nil
+					}
 				}
 
-				self.stringValue = "\(shortcut)"
-				self.showsCancelButton = true
+				stringValue = "\(shortcut)"
+				showsCancelButton = true
 
-				self.saveShortcut(shortcut)
-				self.blur()
+				saveShortcut(shortcut)
+				blur()
 
 				return nil
 			}.start()
@@ -294,3 +338,4 @@ extension KeyboardShortcuts {
 		}
 	}
 }
+#endif

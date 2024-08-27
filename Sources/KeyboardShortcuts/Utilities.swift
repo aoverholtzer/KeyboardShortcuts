@@ -1,3 +1,4 @@
+#if os(macOS)
 import Carbon.HIToolbox
 import SwiftUI
 
@@ -14,7 +15,7 @@ extension String {
 
 
 extension Data {
-	var toString: String? { String(data: self, encoding: .utf8) }
+	var toString: String? { String(data: self, encoding: .utf8) } // swiftlint:disable:this non_optional_string_data_conversion
 }
 
 
@@ -27,6 +28,10 @@ extension NSTextField {
 	func hideCaret() {
 		(currentEditor() as? NSTextView)?.insertionPointColor = .clear
 	}
+
+    func restoreCaret() {
+        (currentEditor() as? NSTextView)?.insertionPointColor = .labelColor
+    }
 }
 
 
@@ -75,11 +80,70 @@ final class LocalEventMonitor {
 	}
 
 	func stop() {
-		guard let monitor = monitor else {
+		guard let monitor else {
 			return
 		}
 
 		NSEvent.removeMonitor(monitor)
+	}
+}
+
+
+final class RunLoopLocalEventMonitor {
+	private let runLoopMode: RunLoop.Mode
+	private let callback: (NSEvent) -> NSEvent?
+	private let observer: CFRunLoopObserver
+
+	init(
+		events: NSEvent.EventTypeMask,
+		runLoopMode: RunLoop.Mode,
+		callback: @escaping (NSEvent) -> NSEvent?
+	) {
+		self.runLoopMode = runLoopMode
+		self.callback = callback
+
+		self.observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeSources.rawValue, true, 0) { _, _ in
+			// Pull all events from the queue and handle the ones matching the given types.
+			// Non-matching events are left untouched, maintaining their order in the queue.
+
+			var eventsToHandle = [NSEvent]()
+
+			// Retrieve all events from the event queue to preserve their order (instead of using the `matching` parameter).
+			while let eventToHandle = NSApp.nextEvent(matching: .any, until: nil, inMode: .default, dequeue: true) {
+				eventsToHandle.append(eventToHandle)
+			}
+
+			// Iterate over the gathered events, instead of doing it directly in the `while` loop, to avoid potential infinite loops caused by re-retrieving undiscarded events.
+			for eventToHandle in eventsToHandle {
+				var handledEvent: NSEvent?
+
+				if !events.contains(NSEvent.EventTypeMask(rawValue: 1 << eventToHandle.type.rawValue)) {
+					handledEvent = eventToHandle
+				} else if let callbackEvent = callback(eventToHandle) {
+					handledEvent = callbackEvent
+				}
+
+				guard let handledEvent else {
+					continue
+				}
+
+				NSApp.postEvent(handledEvent, atStart: false)
+			}
+		}
+	}
+
+	deinit {
+		stop()
+	}
+
+	@discardableResult
+	func start() -> Self {
+		CFRunLoopAddObserver(RunLoop.current.getCFRunLoop(), observer, CFRunLoopMode(runLoopMode.rawValue as CFString))
+		return self
+	}
+
+	func stop() {
+		CFRunLoopRemoveObserver(RunLoop.current.getCFRunLoop(), observer, CFRunLoopMode(runLoopMode.rawValue as CFString))
 	}
 }
 
@@ -139,13 +203,15 @@ extension NSAlert {
 		title: String,
 		message: String? = nil,
 		style: Style = .warning,
-		icon: NSImage? = nil
+		icon: NSImage? = nil,
+		buttonTitles: [String] = []
 	) -> NSApplication.ModalResponse {
 		NSAlert(
 			title: title,
 			message: message,
 			style: style,
-			icon: icon
+			icon: icon,
+			buttonTitles: buttonTitles
 		).runModal(for: window)
 	}
 
@@ -153,14 +219,19 @@ extension NSAlert {
 		title: String,
 		message: String? = nil,
 		style: Style = .warning,
-		icon: NSImage? = nil
+		icon: NSImage? = nil,
+		buttonTitles: [String] = []
 	) {
 		self.init()
 		self.messageText = title
 		self.alertStyle = style
 		self.icon = icon
 
-		if let message = message {
+		for buttonTitle in buttonTitles {
+			addButton(withTitle: buttonTitle)
+		}
+
+		if let message {
 			self.informativeText = message
 		}
 	}
@@ -170,7 +241,7 @@ extension NSAlert {
 	*/
 	@discardableResult
 	func runModal(for window: NSWindow? = nil) -> NSApplication.ModalResponse {
-		guard let window = window else {
+		guard let window else {
 			return runModal()
 		}
 
@@ -235,8 +306,7 @@ extension NSEvent.ModifierFlags {
 	}
 }
 
-/// :nodoc:
-extension NSEvent.ModifierFlags: CustomStringConvertible {
+extension NSEvent.ModifierFlags {
 	/**
 	The string representation of the modifier flags.
 
@@ -245,7 +315,7 @@ extension NSEvent.ModifierFlags: CustomStringConvertible {
 	//=> "⇧⌘"
 	```
 	*/
-	public var description: String {
+	var presentableDescription: String {
 		var description = ""
 
 		if contains(.control) {
@@ -326,20 +396,20 @@ enum AssociationPolicy {
 	var rawValue: objc_AssociationPolicy {
 		switch self {
 		case .assign:
-			return .OBJC_ASSOCIATION_ASSIGN
+			.OBJC_ASSOCIATION_ASSIGN
 		case .retainNonatomic:
-			return .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+			.OBJC_ASSOCIATION_RETAIN_NONATOMIC
 		case .copyNonatomic:
-			return .OBJC_ASSOCIATION_COPY_NONATOMIC
+			.OBJC_ASSOCIATION_COPY_NONATOMIC
 		case .retain:
-			return .OBJC_ASSOCIATION_RETAIN
+			.OBJC_ASSOCIATION_RETAIN
 		case .copy:
-			return .OBJC_ASSOCIATION_COPY
+			.OBJC_ASSOCIATION_COPY
 		}
 	}
 }
 
-final class ObjectAssociation<T: Any> {
+final class ObjectAssociation<T> {
 	private let policy: AssociationPolicy
 
 	init(policy: AssociationPolicy = .retainNonatomic) {
@@ -359,27 +429,6 @@ final class ObjectAssociation<T: Any> {
 }
 
 
-extension DispatchQueue {
-	/**
-	Label of the current dispatch queue.
-
-	- Important: Only meant for debugging purposes.
-
-	```
-	DispatchQueue.currentQueueLabel
-	//=> "com.apple.main-thread"
-	```
-	*/
-	static var currentQueueLabel: String { String(cString: __dispatch_queue_get_label(nil)) }
-
-	/**
-	Whether the current queue is a `NSBackgroundActivityScheduler` task.
-	*/
-	static var isCurrentQueueNSBackgroundActivitySchedulerQueue: Bool { currentQueueLabel.hasPrefix("com.apple.xpc.activity.") }
-}
-
-
-@available(macOS 10.15, *)
 extension HorizontalAlignment {
 	private enum ControlAlignment: AlignmentID {
 		static func defaultValue(in context: ViewDimensions) -> CGFloat { // swiftlint:disable:this no_cgfloat
@@ -390,9 +439,8 @@ extension HorizontalAlignment {
 	fileprivate static let controlAlignment = Self(ControlAlignment.self)
 }
 
-@available(macOS 10.15, *)
 extension View {
-	func formLabel<Label: View>(@ViewBuilder _ label: () -> Label) -> some View {
+	func formLabel(@ViewBuilder _ label: () -> some View) -> some View {
 		HStack(alignment: .firstTextBaseline) {
 			label()
 			labelsHidden()
@@ -401,3 +449,4 @@ extension View {
 			.alignmentGuide(.leading) { $0[.controlAlignment] }
 	}
 }
+#endif

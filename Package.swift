@@ -1,11 +1,11 @@
-// swift-tools-version:5.6
+// swift-tools-version:5.10
 import PackageDescription
 
 let package = Package(
 	name: "KeyboardShortcuts",
 	defaultLocalization: "en",
 	platforms: [
-		.macOS(.v10_11)
+		.macOS(.v10_15)
 	],
 	products: [
 		.library(
@@ -14,9 +14,6 @@ let package = Package(
 				"KeyboardShortcuts"
 			]
 		)
-	],
-	dependencies: [
-		.package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0")
 	],
 	targets: [
 		.target(

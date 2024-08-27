@@ -1,6 +1,7 @@
 import SwiftUI
 
 
+@MainActor
 final class CallbackMenuItem: NSMenuItem {
 	private static var validateCallback: ((NSMenuItem) -> Bool)?
 
@@ -26,7 +27,7 @@ final class CallbackMenuItem: NSMenuItem {
 		self.isChecked = isChecked
 		self.isHidden = isHidden
 
-		if let keyModifiers = keyModifiers {
+		if let keyModifiers {
 			self.keyEquivalentModifierMask = keyModifiers
 		}
 	}
@@ -67,7 +68,7 @@ extension NSMenuItem {
 		self.isChecked = isChecked
 		self.isHidden = isHidden
 
-		if let keyModifiers = keyModifiers {
+		if let keyModifiers {
 			self.keyEquivalentModifierMask = keyModifiers
 		}
 	}
@@ -82,6 +83,7 @@ extension NSMenuItem {
 
 
 extension NSMenu {
+	@MainActor
 	@discardableResult
 	func addCallbackItem(
 		_ title: String,

@@ -1,4 +1,5 @@
-import Cocoa
+#if os(macOS)
+import AppKit.NSMenu
 
 /**
 Global keyboard shortcuts for your macOS app.
@@ -32,10 +33,47 @@ public enum KeyboardShortcuts {
 		shortcutsForLegacyHandlers.union(shortcutsForStreamHandlers)
 	}
 
+	private static var isInitialized = false
+
+	private static var openMenuObserver: NSObjectProtocol?
+	private static var closeMenuObserver: NSObjectProtocol?
+
 	/**
 	When `true`, event handlers will not be called for registered keyboard shortcuts.
 	*/
 	public static var isPaused = false
+
+	/**
+	Enable/disable monitoring of all keyboard shortcuts.
+
+	The default is `true`.
+	*/
+	public static var isEnabled = true {
+		didSet {
+			guard isEnabled != oldValue else {
+				return
+			}
+
+			CarbonKeyboardShortcuts.updateEventHandler()
+		}
+	}
+
+	/**
+	Enable keyboard shortcuts to work even when an `NSMenu` is open by setting this property when the menu opens and closes.
+
+	`NSMenu` runs in a tracking run mode that blocks keyboard shortcuts events. When you set this property to `true`, it switches to a different kind of event handler, which does work when the menu is open.
+
+	The main use-case for this is toggling the menu of a menu bar app with a keyboard shortcut.
+	*/
+	private(set) static var isMenuOpen = false {
+		didSet {
+			guard isMenuOpen != oldValue else {
+				return
+			}
+
+			CarbonKeyboardShortcuts.updateEventHandler()
+		}
+	}
 
 	private static func register(_ shortcut: Shortcut) {
 		guard !registeredShortcuts.contains(shortcut) else {
@@ -96,6 +134,22 @@ public enum KeyboardShortcuts {
 		// TODO: Should remove user defaults too.
 	}
 
+	static func initialize() {
+		guard !isInitialized else {
+			return
+		}
+
+		openMenuObserver = NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { _ in
+			isMenuOpen = true
+		}
+
+		closeMenuObserver = NotificationCenter.default.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: nil) { _ in
+			isMenuOpen = false
+		}
+
+		isInitialized = true
+	}
+
 	/**
 	Remove all handlers receiving keyboard shortcuts events.
 
@@ -115,54 +169,45 @@ public enum KeyboardShortcuts {
 	}
 
 	// TODO: Also add `.isEnabled(_ name: Name)`.
+
 	/**
-	Disable a keyboard shortcut.
+	Disable the keyboard shortcut for one or more names.
 	*/
-	public static func disable(_ name: Name) {
-		guard let shortcut = getShortcut(for: name) else {
-			return
-		}
-
-		unregister(shortcut)
-	}
-
-	/**
-	Enable a disabled keyboard shortcut.
-	*/
-	public static func enable(_ name: Name) {
-		guard let shortcut = getShortcut(for: name) else {
-			return
-		}
-
-		register(shortcut)
-	}
-
-	/**
-	Reset the keyboard shortcut for one or more names.
-
-	If the `Name` has a default shortcut, it will reset to that.
-
-	```swift
-	import SwiftUI
-	import KeyboardShortcuts
-
-	struct PreferencesView: View {
-		var body: some View {
-			VStack {
-				// …
-				Button("Reset All") {
-					KeyboardShortcuts.reset(
-						.toggleUnicornMode,
-						.showRainbow
-					)
-				}
+	public static func disable(_ names: [Name]) {
+		for name in names {
+			guard let shortcut = getShortcut(for: name) else {
+				continue
 			}
+
+			unregister(shortcut)
 		}
 	}
-	```
+
+	/**
+	Disable the keyboard shortcut for one or more names.
 	*/
-	public static func reset(_ names: Name...) {
-		reset(names)
+	public static func disable(_ names: Name...) {
+		disable(names)
+	}
+
+	/**
+	Enable the keyboard shortcut for one or more names.
+	*/
+	public static func enable(_ names: [Name]) {
+		for name in names {
+			guard let shortcut = getShortcut(for: name) else {
+				continue
+			}
+
+			register(shortcut)
+		}
+	}
+
+	/**
+	Enable the keyboard shortcut for one or more names.
+	*/
+	public static func enable(_ names: Name...) {
+		enable(names)
 	}
 
 	/**
@@ -176,7 +221,7 @@ public enum KeyboardShortcuts {
 	import SwiftUI
 	import KeyboardShortcuts
 
-	struct PreferencesView: View {
+	struct SettingsScreen: View {
 		var body: some View {
 			VStack {
 				// …
@@ -198,19 +243,50 @@ public enum KeyboardShortcuts {
 	}
 
 	/**
+	Reset the keyboard shortcut for one or more names.
+
+	If the `Name` has a default shortcut, it will reset to that.
+
+	```swift
+	import SwiftUI
+	import KeyboardShortcuts
+
+	struct SettingsScreen: View {
+		var body: some View {
+			VStack {
+				// …
+				Button("Reset All") {
+					KeyboardShortcuts.reset(
+						.toggleUnicornMode,
+						.showRainbow
+					)
+				}
+			}
+		}
+	}
+	```
+	*/
+	public static func reset(_ names: Name...) {
+		reset(names)
+	}
+
+	/**
 	Set the keyboard shortcut for a name.
 
 	Setting it to `nil` removes the shortcut, even if the `Name` has a default shortcut defined. Use `.reset()` if you want it to respect the default shortcut.
 
-	You would usually not need this as the user would be the one setting the shortcut in a preferences user-interface, but it can be useful when, for example, migrating from a different keyboard shortcuts package.
+	You would usually not need this as the user would be the one setting the shortcut in a settings user-interface, but it can be useful when, for example, migrating from a different keyboard shortcuts package.
 	*/
 	public static func setShortcut(_ shortcut: Shortcut?, for name: Name) {
-		guard let shortcut = shortcut else {
-			userDefaultsRemove(name: name)
-			return
+		if let shortcut {
+			userDefaultsSet(name: name, shortcut: shortcut)
+		} else {
+			if name.defaultShortcut != nil {
+				userDefaultsDisable(name: name)
+			} else {
+				userDefaultsRemove(name: name)
+			}
 		}
-
-		userDefaultsSet(name: name, shortcut: shortcut)
 	}
 
 	/**
@@ -287,7 +363,7 @@ public enum KeyboardShortcuts {
 	You can safely call this even if the user has not yet set a keyboard shortcut. It will just be inactive until they do.
 
 	```swift
-	import Cocoa
+	import AppKit
 	import KeyboardShortcuts
 
 	@main
@@ -313,7 +389,7 @@ public enum KeyboardShortcuts {
 	You can safely call this even if the user has not yet set a keyboard shortcut. It will just be inactive until they do.
 
 	```swift
-	import Cocoa
+	import AppKit
 	import KeyboardShortcuts
 
 	@main
@@ -355,12 +431,22 @@ public enum KeyboardShortcuts {
 		userDefaultsDidChange(name: name)
 	}
 
-	static func userDefaultsRemove(name: Name) {
+	static func userDefaultsDisable(name: Name) {
 		guard let shortcut = getShortcut(for: name) else {
 			return
 		}
 
 		UserDefaults.standard.set(false, forKey: userDefaultsKey(for: name))
+		unregister(shortcut)
+		userDefaultsDidChange(name: name)
+	}
+
+	static func userDefaultsRemove(name: Name) {
+		guard let shortcut = getShortcut(for: name) else {
+			return
+		}
+
+		UserDefaults.standard.removeObject(forKey: userDefaultsKey(for: name))
 		unregister(shortcut)
 		userDefaultsDidChange(name: name)
 	}
@@ -371,8 +457,7 @@ public enum KeyboardShortcuts {
 }
 
 extension KeyboardShortcuts {
-	@available(macOS 10.15, *)
-	public enum EventType {
+	public enum EventType: Sendable {
 		case keyDown
 		case keyUp
 	}
@@ -406,7 +491,6 @@ extension KeyboardShortcuts {
 
 	- Note: This method is not affected by `.removeAllHandlers()`.
 	*/
-	@available(macOS 10.15, *)
 	public static func events(for name: Name) -> AsyncStream<KeyboardShortcuts.EventType> {
 		AsyncStream { continuation in
 			let id = UUID()
@@ -463,44 +547,12 @@ extension KeyboardShortcuts {
 
 	- Note: This method is not affected by `.removeAllHandlers()`.
 	*/
-	@available(macOS 10.15, *)
 	public static func events(_ type: EventType, for name: Name) -> AsyncFilterSequence<AsyncStream<EventType>> {
 		events(for: name).filter { $0 == type }
-	}
-
-	@available(macOS 10.15, *)
-	@available(*, deprecated, renamed: "events(_:for:)")
-	public static func on(_ type: EventType, for name: Name) -> AsyncStream<Void> {
-		AsyncStream { continuation in
-			let id = UUID()
-
-			switch type {
-			case .keyDown:
-				streamKeyDownHandlers[name, default: [:]][id] = {
-					continuation.yield()
-				}
-			case .keyUp:
-				streamKeyUpHandlers[name, default: [:]][id] = {
-					continuation.yield()
-				}
-			}
-
-			registerShortcutIfNeeded(for: name)
-
-			continuation.onTermination = { _ in
-				switch type {
-				case .keyDown:
-					streamKeyDownHandlers[name]?[id] = nil
-				case .keyUp:
-					streamKeyUpHandlers[name]?[id] = nil
-				}
-
-				unregisterShortcutIfNeeded(for: name)
-			}
-		}
 	}
 }
 
 extension Notification.Name {
 	static let shortcutByNameDidChange = Self("KeyboardShortcuts_shortcutByNameDidChange")
 }
+#endif

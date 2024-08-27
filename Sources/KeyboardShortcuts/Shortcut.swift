@@ -1,11 +1,12 @@
-import Cocoa
+#if os(macOS)
+import AppKit
 import Carbon.HIToolbox
 
 extension KeyboardShortcuts {
 	/**
 	A keyboard shortcut.
 	*/
-	public struct Shortcut: Hashable, Codable {
+	public struct Shortcut: Hashable, Codable, Sendable {
 		/**
 		Carbon modifiers are not always stored as the same number.
 
@@ -110,12 +111,13 @@ extension KeyboardShortcuts.Shortcut {
 	/**
 	Recursively finds a menu item in the given menu that has a matching key equivalent and modifier.
 	*/
+	@MainActor
 	func menuItemWithMatchingShortcut(in menu: NSMenu) -> NSMenuItem? {
 		for item in menu.items {
 			var keyEquivalent = item.keyEquivalent
 			var keyEquivalentModifierMask = item.keyEquivalentModifierMask
 
-			if modifiers.contains(.shift) {
+			if modifiers.contains(.shift), keyEquivalent.lowercased() != keyEquivalent {
 				keyEquivalent = keyEquivalent.lowercased()
 				keyEquivalentModifierMask.insert(.shift)
 			}
@@ -141,6 +143,7 @@ extension KeyboardShortcuts.Shortcut {
 	/**
 	Returns a menu item in the app's main menu that has a matching key equivalent and modifier.
 	*/
+	@MainActor
 	var takenByMainMenu: NSMenuItem? {
 		guard let mainMenu = NSApp.mainMenu else {
 			return nil
@@ -150,7 +153,7 @@ extension KeyboardShortcuts.Shortcut {
 	}
 }
 
-private var keyToCharacterMapping: [KeyboardShortcuts.Key: String] = [
+private let keyToCharacterMapping: [KeyboardShortcuts.Key: String] = [
 	.return: "↩",
 	.delete: "⌫",
 	.deleteForward: "⌦",
@@ -158,7 +161,7 @@ private var keyToCharacterMapping: [KeyboardShortcuts.Key: String] = [
 	.escape: "⎋",
 	.help: "?⃝",
 	.home: "↖",
-	.space: NSLocalizedString("Space", comment: ""),//"⎵",
+	.space: "space_key".localized, // This matches what macOS uses.
 	.tab: "⇥",
 	.pageUp: "⇞",
 	.pageDown: "⇟",
@@ -186,15 +189,39 @@ private var keyToCharacterMapping: [KeyboardShortcuts.Key: String] = [
 	.f18: "F18",
 	.f19: "F19",
 	.f20: "F20",
+	
     .jisEisu: "英数",
     .jisKana: "かな"
+
+	// Representations for numeric keypad keys with   ⃣  Unicode U+20e3 'COMBINING ENCLOSING KEYCAP'
+	.keypad0: "0\u{20e3}",
+	.keypad1: "1\u{20e3}",
+	.keypad2: "2\u{20e3}",
+	.keypad3: "3\u{20e3}",
+	.keypad4: "4\u{20e3}",
+	.keypad5: "5\u{20e3}",
+	.keypad6: "6\u{20e3}",
+	.keypad7: "7\u{20e3}",
+	.keypad8: "8\u{20e3}",
+	.keypad9: "9\u{20e3}",
+	// There's "⌧“ 'X In A Rectangle Box' (U+2327), "☒" 'Ballot Box with X' (U+2612), "×" 'Multiplication Sign' (U+00d7), "⨯" 'Vector or Cross Product' (U+2a2f), or a plain small x. All combined symbols appear bigger.
+	.keypadClear: "☒\u{20e3}", // The combined symbol appears bigger than the other combined 'keycaps'
+	// TODO: Respect locale decimal separator ("." or ",")
+	.keypadDecimal: ".\u{20e3}",
+	.keypadDivide: "/\u{20e3}",
+	// "⏎" 'Return Symbol' (U+23CE) but "↩" 'Leftwards Arrow with Hook' (U+00d7) seems to be more common on macOS.
+	.keypadEnter: "↩\u{20e3}", // The combined symbol appears bigger than the other combined 'keycaps'
+	.keypadEquals: "=\u{20e3}",
+	.keypadMinus: "-\u{20e3}",
+	.keypadMultiply: "*\u{20e3}",
+	.keypadPlus: "+\u{20e3}"
 ]
 
 private func stringFromKeyCode(_ keyCode: Int) -> String {
 	String(format: "%C", keyCode)
 }
 
-private var keyToKeyEquivalentString: [KeyboardShortcuts.Key: String] = [
+private let keyToKeyEquivalentString: [KeyboardShortcuts.Key: String] = [
 	.space: stringFromKeyCode(0x20),
 	.f1: stringFromKeyCode(NSF1FunctionKey),
 	.f2: stringFromKeyCode(NSF2FunctionKey),
@@ -219,13 +246,14 @@ private var keyToKeyEquivalentString: [KeyboardShortcuts.Key: String] = [
 ]
 
 extension KeyboardShortcuts.Shortcut {
+	@MainActor // `TISGetInputSourceProperty` crashes if called on a non-main thread.
 	public func keyToCharacter() -> String? {
 		// `TISCopyCurrentASCIICapableKeyboardLayoutInputSource` works on a background thread, but crashes when used in a `NSBackgroundActivityScheduler` task, so we guard against that. It only crashes when running from Xcode, not in release builds, but it's probably safest to not call it from a `NSBackgroundActivityScheduler` no matter what.
 		assert(!DispatchQueue.isCurrentQueueNSBackgroundActivitySchedulerQueue, "This method cannot be used in a `NSBackgroundActivityScheduler` task")
 
 		// Some characters cannot be automatically translated.
 		if
-			let key = key,
+			let key,
 			let character = keyToCharacterMapping[key]
 		{
 			return character
@@ -271,12 +299,13 @@ extension KeyboardShortcuts.Shortcut {
 
 	- Note: Don't forget to also pass `.modifiers` to `NSMenuItem#keyEquivalentModifierMask`.
 	*/
+	@MainActor
 	public var keyEquivalent: String {
 		let keyString = keyToCharacter() ?? ""
 
 		guard keyString.count <= 1 else {
 			guard
-				let key = key,
+				let key,
 				let string = keyToKeyEquivalentString[key]
 			else {
 				return ""
@@ -298,7 +327,10 @@ extension KeyboardShortcuts.Shortcut: CustomStringConvertible {
 	//=> "⌘A"
 	```
 	*/
+	@MainActor
 	public var description: String {
-		modifiers.description + (keyToCharacter()?.capitalized ?? "�")
+		// We use `.capitalized` so it correctly handles “⌘Space”.
+		modifiers.presentableDescription + (keyToCharacter()?.capitalized ?? "�")
 	}
 }
+#endif

@@ -1,3 +1,4 @@
+#if os(macOS)
 extension KeyboardShortcuts {
 	/**
 	The strongly-typed name of the keyboard shortcut.
@@ -12,7 +13,7 @@ extension KeyboardShortcuts {
 	}
 	```
 	*/
-	public struct Name: Hashable {
+	public struct Name: Hashable, Sendable {
 		// This makes it possible to use `Shortcut` without the namespace.
 		/// :nodoc:
 		public typealias Shortcut = KeyboardShortcuts.Shortcut
@@ -21,24 +22,31 @@ extension KeyboardShortcuts {
 		public let defaultShortcut: Shortcut?
 
 		/**
-		Get the keyboard shortcut assigned to the name.
+		The keyboard shortcut assigned to the name.
 		*/
-		public var shortcut: Shortcut? { KeyboardShortcuts.getShortcut(for: self) }
+		public var shortcut: Shortcut? {
+			get { KeyboardShortcuts.getShortcut(for: self) }
+			nonmutating set {
+				KeyboardShortcuts.setShortcut(newValue, for: self)
+			}
+		}
 
 		/**
 		- Parameter name: Name of the shortcut.
 		- Parameter default: Optional default key combination. Do not set this unless it's essential. Users find it annoying when random apps steal their existing keyboard shortcuts. It's generally better to show a welcome screen on the first app launch that lets the user set the shortcut.
 		*/
-		public init(_ name: String, default defaultShortcut: Shortcut? = nil) {
+		public init(_ name: String, default initialShortcut: Shortcut? = nil) {
 			self.rawValue = name
-			self.defaultShortcut = defaultShortcut
+			self.defaultShortcut = initialShortcut
 
 			if
-				let defaultShortcut = defaultShortcut,
+				let initialShortcut,
 				!userDefaultsContains(name: self)
 			{
-				setShortcut(defaultShortcut, for: self)
+				setShortcut(initialShortcut, for: self)
 			}
+
+			KeyboardShortcuts.initialize()
 		}
 	}
 }
@@ -49,3 +57,4 @@ extension KeyboardShortcuts.Name: RawRepresentable {
 		self.init(rawValue)
 	}
 }
+#endif
