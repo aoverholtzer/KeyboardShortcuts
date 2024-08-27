@@ -191,7 +191,7 @@ private let keyToCharacterMapping: [KeyboardShortcuts.Key: String] = [
 	.f20: "F20",
 	
     .jisEisu: "英数",
-    .jisKana: "かな"
+    .jisKana: "かな",
 
 	// Representations for numeric keypad keys with   ⃣  Unicode U+20e3 'COMBINING ENCLOSING KEYCAP'
 	.keypad0: "0\u{20e3}",
@@ -248,8 +248,6 @@ private let keyToKeyEquivalentString: [KeyboardShortcuts.Key: String] = [
 extension KeyboardShortcuts.Shortcut {
 	@MainActor // `TISGetInputSourceProperty` crashes if called on a non-main thread.
 	public func keyToCharacter() -> String? {
-		// `TISCopyCurrentASCIICapableKeyboardLayoutInputSource` works on a background thread, but crashes when used in a `NSBackgroundActivityScheduler` task, so we guard against that. It only crashes when running from Xcode, not in release builds, but it's probably safest to not call it from a `NSBackgroundActivityScheduler` no matter what.
-		assert(!DispatchQueue.isCurrentQueueNSBackgroundActivitySchedulerQueue, "This method cannot be used in a `NSBackgroundActivityScheduler` task")
 
 		// Some characters cannot be automatically translated.
 		if
