@@ -323,7 +323,7 @@ extension NSEvent.ModifierFlags {
 	//=> "⇧⌘"
 	```
 	*/
-	var presentableDescription: String {
+	public var presentableDescription: String {
 		var description = ""
 
 		if contains(.control) {
