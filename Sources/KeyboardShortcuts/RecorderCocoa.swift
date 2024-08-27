@@ -1,3 +1,5 @@
+
+#if os(macOS)
 import AppKit
 import Carbon.HIToolbox
 
@@ -12,7 +14,7 @@ extension KeyboardShortcuts {
 	It takes care of storing the keyboard shortcut in `UserDefaults` for you.
 
 	```swift
-	import Cocoa
+	import AppKit
 	import KeyboardShortcuts
 
 	final class SettingsViewController: NSViewController {
@@ -155,16 +157,17 @@ extension KeyboardShortcuts {
 
 		private func setUpEvents() {
 			observers = [
-                NotificationCenter.default.addObserver(forName: .shortcutByNameDidChange, object: nil, queue: nil) { [weak self] notification in
-                    guard
-                        let self = self,
-                        let nameInNotification = notification.userInfo?["name"] as? KeyboardShortcuts.Name,
-                        nameInNotification == self.shortcutName
-                    else {
-                        return
-                    }
-                    self.setStringValue(name: nameInNotification)
-                },
+				NotificationCenter.default.addObserver(forName: .shortcutByNameDidChange, object: nil, queue: nil) { [weak self] notification in
+					guard
+						let self,
+						let nameInNotification = notification.userInfo?["name"] as? KeyboardShortcuts.Name,
+						nameInNotification == shortcutName
+					else {
+						return
+					}
+
+					setStringValue(name: nameInNotification)
+				},
                 DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name(kTISNotifySelectedKeyboardInputSourceChanged as String), object: nil, queue: nil) { [weak self] notification in
                     guard let self = self else { return }
                     self.setStringValue(name: self.shortcutName)
@@ -235,7 +238,7 @@ extension KeyboardShortcuts {
 					return
 				}
 
-				self.endRecording()
+				endRecording()
 				window.makeFirstResponder(nil)
 			}
 
@@ -266,14 +269,14 @@ extension KeyboardShortcuts {
 					return nil
 				}
 
-				let clickPoint = self.convert(event.locationInWindow, from: nil)
+				let clickPoint = convert(event.locationInWindow, from: nil)
 				let clickMargin = 3.0
 
 				if
 					event.type == .leftMouseUp || event.type == .rightMouseUp,
-					!self.bounds.insetBy(dx: -clickMargin, dy: -clickMargin).contains(clickPoint)
+					!bounds.insetBy(dx: -clickMargin, dy: -clickMargin).contains(clickPoint)
 				{
-					self.blur()
+					blur()
 					return event
 				}
 
@@ -285,7 +288,7 @@ extension KeyboardShortcuts {
 					event.modifiers.isEmpty,
 					event.specialKey == .tab
 				{
-					self.blur()
+					blur()
 
 					// We intentionally bubble up the event so it can focus the next responder.
 					return event
@@ -295,7 +298,7 @@ extension KeyboardShortcuts {
 					event.modifiers.isEmpty,
 					event.keyCode == kVK_Escape // TODO: Make this strongly typed.
 				{
-					self.blur()
+					blur()
 					return nil
 				}
 
@@ -305,7 +308,7 @@ extension KeyboardShortcuts {
 						|| event.specialKey == .deleteForward
 						|| event.specialKey == .backspace
 				{
-					self.clear()
+					clear()
 					return nil
 				}
 
@@ -321,39 +324,46 @@ extension KeyboardShortcuts {
 
 				if let menuItem = shortcut.takenByMainMenu {
 					// TODO: Find a better way to make it possible to dismiss the alert by pressing "Enter". How can we make the input automatically temporarily lose focus while the alert is open?
-					self.blur()
+					blur()
 
 					NSAlert.showModal(
-						for: self.window,
+						for: window,
 						title: String.localizedStringWithFormat("keyboard_shortcut_used_by_menu_item".localized, menuItem.title)
 					)
 
-					self.focus()
+					focus()
 
 					return nil
 				}
 
-				guard !shortcut.isTakenBySystem else {
-					self.blur()
+				if shortcut.isTakenBySystem {
+					blur()
 
-					NSAlert.showModal(
-						for: self.window,
+					let modalResponse = NSAlert.showModal(
+						for: window,
 						title: "keyboard_shortcut_used_by_system".localized,
 						// TODO: Add button to offer to open the relevant system settings pane for the user.
-						message: "keyboard_shortcuts_can_be_changed".localized
+						message: "keyboard_shortcuts_can_be_changed".localized,
+						buttonTitles: [
+							"ok".localized,
+							"force_use_shortcut".localized
+						]
 					)
 
-					self.focus()
+					focus()
 
-					return nil
+					// If the user has selected "Use Anyway" in the dialog (the second option), we'll continue setting the keyboard shorcut even though it's reserved by the system.
+					guard modalResponse == .alertSecondButtonReturn else {
+						return nil
+					}
 				}
 
-				self.stringValue = "\(shortcut)"
-//				self.showsCancelButton = shortcut.isDefault != true
-                self.updateCancelButton()
+				stringValue = "\(shortcut)"
+//				showsCancelButton = shortcut.isDefault != true
+                updateCancelButton()
 
-				self.saveShortcut(shortcut)
-				self.blur()
+				saveShortcut(shortcut)
+				blur()
 
 				return nil
 			}.start()
@@ -367,3 +377,4 @@ extension KeyboardShortcuts {
 		}
 	}
 }
+#endif

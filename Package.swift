@@ -1,11 +1,11 @@
-// swift-tools-version:5.7
+// swift-tools-version:5.10
 import PackageDescription
 
 let package = Package(
 	name: "KeyboardShortcuts",
 	defaultLocalization: "en",
 	platforms: [
-		.macOS(.v10_13)
+		.macOS(.v10_15)
 	],
 	products: [
 		.library(

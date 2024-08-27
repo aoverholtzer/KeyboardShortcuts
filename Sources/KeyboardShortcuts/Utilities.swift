@@ -1,3 +1,4 @@
+#if os(macOS)
 import Carbon.HIToolbox
 import SwiftUI
 
@@ -14,7 +15,7 @@ extension String {
 
 
 extension Data {
-	var toString: String? { String(data: self, encoding: .utf8) }
+	var toString: String? { String(data: self, encoding: .utf8) } // swiftlint:disable:this non_optional_string_data_conversion
 }
 
 
@@ -202,13 +203,15 @@ extension NSAlert {
 		title: String,
 		message: String? = nil,
 		style: Style = .warning,
-		icon: NSImage? = nil
+		icon: NSImage? = nil,
+		buttonTitles: [String] = []
 	) -> NSApplication.ModalResponse {
 		NSAlert(
 			title: title,
 			message: message,
 			style: style,
-			icon: icon
+			icon: icon,
+			buttonTitles: buttonTitles
 		).runModal(for: window)
 	}
 
@@ -216,12 +219,17 @@ extension NSAlert {
 		title: String,
 		message: String? = nil,
 		style: Style = .warning,
-		icon: NSImage? = nil
+		icon: NSImage? = nil,
+		buttonTitles: [String] = []
 	) {
 		self.init()
 		self.messageText = title
 		self.alertStyle = style
 		self.icon = icon
+
+		for buttonTitle in buttonTitles {
+			addButton(withTitle: buttonTitle)
+		}
 
 		if let message {
 			self.informativeText = message
@@ -306,8 +314,7 @@ extension NSEvent.ModifierFlags {
 	}
 }
 
-/// :nodoc:
-extension NSEvent.ModifierFlags: CustomStringConvertible {
+extension NSEvent.ModifierFlags {
 	/**
 	The string representation of the modifier flags.
 
@@ -316,7 +323,7 @@ extension NSEvent.ModifierFlags: CustomStringConvertible {
 	//=> "⇧⌘"
 	```
 	*/
-	public var description: String {
+	var presentableDescription: String {
 		var description = ""
 
 		if contains(.control) {
@@ -397,15 +404,15 @@ enum AssociationPolicy {
 	var rawValue: objc_AssociationPolicy {
 		switch self {
 		case .assign:
-			return .OBJC_ASSOCIATION_ASSIGN
+			.OBJC_ASSOCIATION_ASSIGN
 		case .retainNonatomic:
-			return .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+			.OBJC_ASSOCIATION_RETAIN_NONATOMIC
 		case .copyNonatomic:
-			return .OBJC_ASSOCIATION_COPY_NONATOMIC
+			.OBJC_ASSOCIATION_COPY_NONATOMIC
 		case .retain:
-			return .OBJC_ASSOCIATION_RETAIN
+			.OBJC_ASSOCIATION_RETAIN
 		case .copy:
-			return .OBJC_ASSOCIATION_COPY
+			.OBJC_ASSOCIATION_COPY
 		}
 	}
 }
@@ -430,27 +437,6 @@ final class ObjectAssociation<T> {
 }
 
 
-extension DispatchQueue {
-	/**
-	Label of the current dispatch queue.
-
-	- Important: Only meant for debugging purposes.
-
-	```
-	DispatchQueue.currentQueueLabel
-	//=> "com.apple.main-thread"
-	```
-	*/
-	static var currentQueueLabel: String { String(cString: __dispatch_queue_get_label(nil)) }
-
-	/**
-	Whether the current queue is a `NSBackgroundActivityScheduler` task.
-	*/
-	static var isCurrentQueueNSBackgroundActivitySchedulerQueue: Bool { currentQueueLabel.hasPrefix("com.apple.xpc.activity.") }
-}
-
-
-@available(macOS 10.15, *)
 extension HorizontalAlignment {
 	private enum ControlAlignment: AlignmentID {
 		static func defaultValue(in context: ViewDimensions) -> CGFloat { // swiftlint:disable:this no_cgfloat
@@ -461,7 +447,6 @@ extension HorizontalAlignment {
 	fileprivate static let controlAlignment = Self(ControlAlignment.self)
 }
 
-@available(macOS 10.15, *)
 extension View {
 	func formLabel(@ViewBuilder _ label: () -> some View) -> some View {
 		HStack(alignment: .firstTextBaseline) {
@@ -472,3 +457,4 @@ extension View {
 			.alignmentGuide(.leading) { $0[.controlAlignment] }
 	}
 }
+#endif

@@ -1,3 +1,4 @@
+#if os(macOS)
 import Carbon.HIToolbox
 
 extension KeyboardShortcuts {
@@ -5,7 +6,7 @@ extension KeyboardShortcuts {
 	/**
 	Represents a key on the keyboard.
 	*/
-	public struct Key: Hashable, RawRepresentable {
+	public struct Key: Hashable, RawRepresentable, Sendable {
 		// MARK: Letters
 
 		public static let a = Self(kVK_ANSI_A)
@@ -195,3 +196,4 @@ extension KeyboardShortcuts.Key {
 	*/
 	var isFunctionKey: Bool { Self.functionKeys.contains(self) }
 }
+#endif

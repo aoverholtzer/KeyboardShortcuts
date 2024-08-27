@@ -12,7 +12,7 @@ I'm happy to accept more configurability and features. PR welcome! What you see 
 
 ## Requirements
 
-macOS 10.13+
+macOS 10.15+
 
 ## Install
 
@@ -100,7 +100,7 @@ You can also find a [real-world example](https://github.com/sindresorhus/Plash/b
 Using [`KeyboardShortcuts.RecorderCocoa`](Sources/KeyboardShortcuts/RecorderCocoa.swift) instead of `KeyboardShortcuts.Recorder`:
 
 ```swift
-import Cocoa
+import AppKit
 import KeyboardShortcuts
 
 final class SettingsViewController: NSViewController {
