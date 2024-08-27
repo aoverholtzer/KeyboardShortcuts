@@ -332,10 +332,10 @@ extension KeyboardShortcuts.Shortcut: CustomStringConvertible {
 	@MainActor
 	public var description: String {
         if modifiers.contains(.function), key?.isFunctionKey == true {
-            return modifiers.subtracting(.function).description + (keyToCharacter()?.capitalized ?? "�")
+            return modifiers.subtracting(.function).presentableDescription + (keyToCharacter()?.capitalized ?? "�")
         } else {
 			// We use `.capitalized` so it correctly handles “⌘Space”.
-			modifiers.presentableDescription + (keyToCharacter()?.capitalized ?? "�")
+			return modifiers.presentableDescription + (keyToCharacter()?.capitalized ?? "�")
         }
 	}
 }
