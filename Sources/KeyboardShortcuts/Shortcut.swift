@@ -61,7 +61,8 @@ extension KeyboardShortcuts {
 
 			self.init(
 				carbonKeyCode: Int(event.keyCode),
-				carbonModifiers: event.modifierFlags.carbon
+				// Note: We could potentially support users specifying shortcuts with the Fn key, but I haven't found a reliable way to differentate when to display the Fn key and not. For example, with Fn+F1 we only want to display F1, but with Fn+V, we want to display both. I cannot just specialize it for F keys as it applies to other keys too, like Fn+arrowup.
+				carbonModifiers: event.modifierFlags.subtracting(.function).carbon
 			)
 		}
 
@@ -104,16 +105,20 @@ extension KeyboardShortcuts.Shortcut {
 	Check whether the keyboard shortcut is disallowed.
 	*/
 	var isDisallowed: Bool {
-		let disallowedModifiers: NSEvent.ModifierFlags = [.option, [.option, .shift]]
-		if
+		guard
 			#available(macOS 15, *),
-			Constants.isSandboxed,
-			disallowedModifiers.contains(modifiers)
-		{
-			return true
+			Constants.isSandboxed
+		else {
+			return false
 		}
 
-		return false
+		if !modifiers.contains(.option) {
+			return false // Allowed if Option is not involved
+		}
+
+		// If Option is present, ensure there's at least one modifier other than Option and Shift
+		let otherModifiers: NSEvent.ModifierFlags = [.command, .control, .function, .capsLock]
+		return modifiers.isDisjoint(with: otherModifiers)
 	}
 
 	/**
