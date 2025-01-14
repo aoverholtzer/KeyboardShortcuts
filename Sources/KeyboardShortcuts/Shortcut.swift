@@ -734,6 +734,21 @@ extension KeyboardShortcuts.Shortcut {
 
 		return nil
 	}
+	
+	// added by Adam
+	@MainActor
+	public var keyPresentableDescription: String? {
+		if
+			let key,
+			let specialKey = keyToSpecialKeyMapping[key]
+		{
+			return specialKey.presentableDescription
+		} else if let character = keyToCharacter() {
+			return String(character)
+		}
+
+		return nil
+	}
 }
 
 extension KeyboardShortcuts.Shortcut: CustomStringConvertible {
