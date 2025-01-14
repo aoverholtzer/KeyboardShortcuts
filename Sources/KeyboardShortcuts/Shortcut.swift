@@ -307,7 +307,7 @@ private let keyToSpecialKeyMapping: [KeyboardShortcuts.Key: SpecialKey] = [
 ]
 
 extension SpecialKey {
-	public var presentableDescription: String {
+	fileprivate var presentableDescription: String {
 		switch self {
 		case .return:
 			"↩"
