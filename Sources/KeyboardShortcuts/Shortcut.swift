@@ -246,6 +246,7 @@ private enum SpecialKey {
 	case keypadPlus
 	case jisEisu
 	case jisKana
+	case globe
 }
 
 private let keyToSpecialKeyMapping: [KeyboardShortcuts.Key: SpecialKey] = [
@@ -303,7 +304,8 @@ private let keyToSpecialKeyMapping: [KeyboardShortcuts.Key: SpecialKey] = [
 	.keypadMultiply: .keypadMultiply,
 	.keypadPlus: .keypadPlus,
 	.jisEisu: .jisEisu,
-	.jisKana: .jisKana
+	.jisKana: .jisKana,
+	.function: .globe,
 ]
 
 extension SpecialKey {
@@ -424,6 +426,8 @@ extension SpecialKey {
 			"英数"
 		case .jisKana:
 			"かな"
+		case .globe:
+			UnicodeSymbols.functionKey
 		}
 	}
 
@@ -544,6 +548,8 @@ extension SpecialKey {
 			KeyEquivalent(unicodeScalarValue: kVK_JIS_Eisu)
 		case .jisKana:
 			KeyEquivalent(unicodeScalarValue: kVK_JIS_Kana)
+		case .globe:
+			KeyEquivalent(unicodeScalarValue: kVK_Function)
 		}
 	}
 
@@ -663,6 +669,8 @@ extension SpecialKey {
 			Character(unicodeScalarValue: kVK_JIS_Eisu)
 		case .jisKana:
 			Character(unicodeScalarValue: kVK_JIS_Kana)
+		case .globe:
+			Character(unicodeScalarValue: kVK_Function)
 		}
 	}
 }
