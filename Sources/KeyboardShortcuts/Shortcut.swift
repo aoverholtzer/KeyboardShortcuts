@@ -677,7 +677,7 @@ extension SpecialKey {
 
 extension KeyboardShortcuts.Shortcut {
 	@MainActor // `TISGetInputSourceProperty` crashes if called on a non-main thread.
-	fileprivate func keyToCharacter() -> Character? {
+	public func keyToCharacter() -> Character? {
 		guard
 			let source = TISCopyCurrentASCIICapableKeyboardLayoutInputSource()?.takeRetainedValue(),
 			let layoutDataPointer = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData)
