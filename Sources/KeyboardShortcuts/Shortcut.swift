@@ -720,7 +720,7 @@ extension KeyboardShortcuts.Shortcut {
 	- Note: Don't forget to also pass `.modifiers` to `NSMenuItem#keyEquivalentModifierMask`.
 	*/
 	@MainActor
-	var keyEquivalent: String? {
+	public var keyEquivalent: String? {
 		if
 			let key,
 			let specialKey = keyToSpecialKeyMapping[key]
