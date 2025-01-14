@@ -40,6 +40,9 @@ extension KeyboardShortcuts {
 		You most likely don't need this.
 		*/
 		public let carbonModifiers: Int
+		
+		// hack by adam
+		public var isDefault: Bool?
 
 		/**
 		Initialize from a strongly-typed key and modifiers.
@@ -241,6 +244,8 @@ private enum SpecialKey {
 	case keypadMinus
 	case keypadMultiply
 	case keypadPlus
+	case jisEisu
+	case jisKana
 }
 
 private let keyToSpecialKeyMapping: [KeyboardShortcuts.Key: SpecialKey] = [
@@ -296,7 +301,9 @@ private let keyToSpecialKeyMapping: [KeyboardShortcuts.Key: SpecialKey] = [
 	.keypadEquals: .keypadEquals,
 	.keypadMinus: .keypadMinus,
 	.keypadMultiply: .keypadMultiply,
-	.keypadPlus: .keypadPlus
+	.keypadPlus: .keypadPlus,
+	.jisEisu: .jisEisu,
+	.jisKana: .jisKana
 ]
 
 extension SpecialKey {
@@ -413,6 +420,10 @@ extension SpecialKey {
 			"*\u{20e3}"
 		case .keypadPlus:
 			"+\u{20e3}"
+		case .jisEisu:
+			"英数"
+		case .jisKana:
+			"かな"
 		}
 	}
 
@@ -529,6 +540,10 @@ extension SpecialKey {
 			nil
 		case .keypadPlus:
 			nil
+		case .jisEisu:
+			KeyEquivalent(unicodeScalarValue: kVK_JIS_Eisu)
+		case .jisKana:
+			KeyEquivalent(unicodeScalarValue: kVK_JIS_Kana)
 		}
 	}
 
@@ -644,6 +659,10 @@ extension SpecialKey {
 			nil
 		case .keypadPlus:
 			nil
+		case .jisEisu:
+			Character(unicodeScalarValue: kVK_JIS_Eisu)
+		case .jisKana:
+			Character(unicodeScalarValue: kVK_JIS_Kana)
 		}
 	}
 }
