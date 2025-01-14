@@ -8,14 +8,13 @@ extension String {
 	Makes the string localizable.
 	*/
 	var localized: String {
-		 NSLocalizedString(self, bundle: .module, comment: self)
-//		NSLocalizedString(self, comment: self) // use app bundle
+		NSLocalizedString(self, bundle: .module, comment: self)
 	}
 }
 
 
 extension Data {
-	var toString: String? { String(data: self, encoding: .utf8) } // swiftlint:disable:this non_optional_string_data_conversion
+	var toString: String? { String(data: self, encoding: .utf8) }
 }
 
 
@@ -153,8 +152,8 @@ extension NSEvent {
 		modifierFlags
 			.intersection(.deviceIndependentFlagsMask)
 			// We remove `capsLock` as it shouldn't affect the modifiers.
-			// We remove `numericPad`/`function` as arrow keys trigger it, use `event.specialKeys` instead.
-			.subtracting([.capsLock, .numericPad, .function])
+			// We remove `numericPad` as arrow keys trigger it, use `event.specialKeys` instead.
+			.subtracting([.capsLock, .numericPad])
 	}
 
 	/**
@@ -177,8 +176,8 @@ extension NSEvent {
 		modifierFlags
 			.intersection(.deviceIndependentFlagsMask)
 			// We remove `capsLock` as it shouldn't affect the modifiers.
-			// We remove `numericPad`/`function` as arrow keys trigger it, use `event.specialKeys` instead.
-			.subtracting([.capsLock, .numericPad, .function])
+			// We remove `numericPad` as arrow keys trigger it, use `event.specialKeys` instead.
+			.subtracting([.capsLock, .numericPad])
 	}
 }
 
@@ -263,6 +262,9 @@ enum UnicodeSymbols {
 
 
 extension NSEvent.ModifierFlags {
+	// Not documented anywhere, but reverse-engineered by me.
+	private static let functionKey = 1 << 17 // 131072 (0x20000)
+
 	var carbon: Int {
 		var modifierFlags = 0
 
@@ -281,10 +283,10 @@ extension NSEvent.ModifierFlags {
 		if contains(.command) {
 			modifierFlags |= cmdKey
 		}
-        
-        if contains(.function) {
-            modifierFlags |= kVK_Function
-        }
+
+		if contains(.function) {
+			modifierFlags |= Self.functionKey
+		}
 
 		return modifierFlags
 	}
@@ -307,11 +309,16 @@ extension NSEvent.ModifierFlags {
 		if carbon & cmdKey == cmdKey {
 			insert(.command)
 		}
-        
-        if carbon & kVK_Function == kVK_Function {
-            insert(.function)
-        }
+
+		if carbon & Self.functionKey == Self.functionKey {
+			insert(.function)
+		}
 	}
+}
+
+extension SwiftUI.EventModifiers {
+	// `.function` is deprecated, so we use the raw value.
+	fileprivate static let function_nonDeprecated = Self(rawValue: 64)
 }
 
 extension NSEvent.ModifierFlags {
@@ -342,6 +349,10 @@ extension NSEvent.ModifierFlags {
 			modifiers.insert(.shift)
 		}
 
+		if contains(.function) {
+			modifiers.insert(.function_nonDeprecated)
+		}
+
 		return modifiers
 	}
 }
@@ -355,7 +366,7 @@ extension NSEvent.ModifierFlags {
 	//=> "⇧⌘"
 	```
 	*/
-	public var presentableDescription: String {
+	var presentableDescription: String {
 		var description = ""
 
 		if contains(.control) {
@@ -497,3 +508,51 @@ extension Dictionary {
 	}
 }
 #endif
+
+
+extension Sequence where Element: Hashable {
+	/**
+	Convert a `Sequence` with `Hashable` elements to a `Set`.
+	*/
+	func toSet() -> Set<Element> { Set(self) }
+}
+
+
+extension Set {
+	/**
+	Convert a `Set` to an `Array`.
+	*/
+	func toArray() -> [Element] { Array(self) }
+}
+
+
+extension StringProtocol {
+	func replacingPrefix(_ prefix: String, with replacement: String) -> String {
+		guard hasPrefix(prefix) else {
+			return String(self)
+		}
+
+		return replacement + dropFirst(prefix.count)
+	}
+}
+
+@available(macOS 11.0, *)
+extension KeyEquivalent {
+	init?(unicodeScalarValue value: Int) {
+		guard let character = Character(unicodeScalarValue: value) else {
+			return nil
+		}
+
+		self = KeyEquivalent(character)
+	}
+}
+
+extension Character {
+	init?(unicodeScalarValue value: Int) {
+		guard let content = UnicodeScalar(value) else {
+			return nil
+		}
+
+		self = Character(content)
+	}
+}
