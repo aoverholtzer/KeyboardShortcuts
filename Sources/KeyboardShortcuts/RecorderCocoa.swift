@@ -121,7 +121,9 @@ extension KeyboardShortcuts {
 			self.onChange = onChange
             self.onInfoClicked = onInfoClicked
 
-			super.init(frame: .zero)
+			// Use a default frame that matches our intrinsic size to prevent zero-size issues
+			// when added without constraints (issue #209)
+			super.init(frame: NSRect(x: 0, y: 0, width: minimumWidth, height: 24))
 			self.delegate = self
 			self.placeholderString = "record_shortcut".localized
 			self.alignment = .center
@@ -254,6 +256,12 @@ extension KeyboardShortcuts {
 
 		/// :nodoc:
 		override public func becomeFirstResponder() -> Bool {
+			// Ensure we have a valid window before attempting to become first responder
+			// This prevents issues in SwiftUI contexts where the view hierarchy might not be fully established
+			guard window != nil else {
+				return false
+			}
+
 			let shouldBecomeFirstResponder = super.becomeFirstResponder()
 
 			guard shouldBecomeFirstResponder else {
