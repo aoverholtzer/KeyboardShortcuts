@@ -9,9 +9,7 @@ extension KeyboardShortcuts {
 	*/
 	nonisolated public struct Shortcut: Hashable, Codable, Sendable {
 		/**
-		Carbon modifiers are not always stored as the same number.
-
-		For example, the system has `⌃F2` stored with the modifiers number `135168`, but if you press the keyboard shortcut, you get `4096`.
+		Converts Carbon modifier flags through AppKit to remove unsupported and noncanonical bits.
 		*/
 		private static func normalizeModifiers(_ carbonModifiers: Int) -> Int {
 			NSEvent.ModifierFlags(carbon: carbonModifiers).carbon
@@ -59,9 +57,11 @@ extension KeyboardShortcuts {
 				return nil
 			}
 
+			/*
+			Recorders intentionally do not support Fn shortcuts, even when Fn is combined with another modifier. Keep stripping it here rather than removing only synthesized Fn, or inputs such as Fn+Command+Z would unexpectedly store Fn. Generic and imported system shortcuts preserve semantic Fn separately for conflict detection.
+			*/
 			self.init(
 				carbonKeyCode: Int(event.keyCode),
-				// Note: We could potentially support users specifying shortcuts with the Fn key, but I haven't found a reliable way to differentate when to display the Fn key and not. For example, with Fn+F1 we only want to display F1, but with Fn+V, we want to display both. I cannot just specialize it for F keys as it applies to other keys too, like Fn+arrowup.
 				carbonModifiers: event.modifierFlags.subtracting(.function).carbon
 			)
 		}
@@ -100,8 +100,22 @@ extension KeyboardShortcuts.Shortcut {
 	*/
 	static var system: [Self] {
 		HotKeyCenter.systemShortcuts.map {
-			Self(carbonKeyCode: $0.carbonKeyCode, carbonModifiers: $0.carbonModifiers)
+			// Symbolic hotkeys use the same synthesized Fn bit as key events.
+			Self(carbonKeyCode: $0.carbonKeyCode, carbonModifiers: $0.carbonModifiers).removingSynthesizedFunctionModifier
 		}
+	}
+
+	/**
+	Returns the shortcut after removing the Fn modifier synthesized by function and navigation keys.
+
+	Use only at boundaries where the system may synthesize Fn, such as raw-event matching and symbolic-hotkey import. Generic shortcuts preserve semantic Fn on ordinary keys.
+	*/
+	nonisolated var removingSynthesizedFunctionModifier: Self {
+		guard key?.hasSynthesizedFunctionModifier == true else {
+			return self
+		}
+
+		return Self(carbonKeyCode: carbonKeyCode, carbonModifiers: modifiers.subtracting(.function).carbon)
 	}
 
 	// TODO: Remove this when targeting macOS 15.2. It only handles a bug present in sandboxed apps on macOS 15.0 and 15.1.

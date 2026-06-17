@@ -324,6 +324,20 @@ struct KeyboardShortcutsTests {
 		#expect(KeyboardShortcuts.getShortcut(for: name3) == nil)
 	}
 
+	@Test("Name equality and hashing are based only on rawValue")
+	func testNameEqualityIgnoresInitialShortcut() {
+		let withInitial = KeyboardShortcuts.Name("sameRawValue", initial: .init(.a))
+		let withoutInitial = KeyboardShortcuts.Name("sameRawValue")
+
+		// Identity is the rawValue (the `UserDefaults` storage key), so the initial shortcut must not affect equality or hashing.
+		#expect(withInitial == withoutInitial)
+		#expect(withInitial.hashValue == withoutInitial.hashValue)
+
+		// `storedNames` carries only the rawValue, but must still match a name created with an initial shortcut.
+		KeyboardShortcuts.setShortcut(.init(.b), for: withInitial)
+		#expect(KeyboardShortcuts.storedNames.contains(withInitial))
+	}
+
 	@Test("Reset all clears defaults")
 	func testResetAllClearsDefaults() {
 		let nameWithDefault = KeyboardShortcuts.Name("resetAllDefault", initial: .init(.a))
@@ -1432,6 +1446,167 @@ struct KeyboardShortcutsTests {
 		#expect(await Self.waitUntilConditionIsTrue {
 			Self.canRegisterHotKey(for: updatedShortcut)
 		})
+	}
+
+	@Test("Function-key shortcuts match raw key events that carry the Fn modifier", arguments: [false, true])
+	func testFunctionKeyRawEventMatchingIncludesFnModifier(registeredWithFunctionModifier: Bool) {
+		var registeredModifiers: NSEvent.ModifierFlags = [.command, .option, .shift, .control]
+		if registeredWithFunctionModifier {
+			registeredModifiers.insert(.function)
+		}
+
+		let shortcut = KeyboardShortcuts.Shortcut(.f17, modifiers: registeredModifiers)
+		var keyDownCount = 0
+
+		let hotKey = HotKey(
+			carbonKeyCode: shortcut.carbonKeyCode,
+			carbonModifiers: shortcut.carbonModifiers,
+			onKeyDown: {
+				keyDownCount += 1
+			},
+			onKeyUp: {}
+		)
+
+		#expect(hotKey != nil)
+
+		let liveModifiers = shortcut.carbonModifiers | NSEvent.ModifierFlags.function.carbon
+
+		let status = HotKeyCenter.shared.handleRawKeyEvent(
+			keyCode: shortcut.carbonKeyCode,
+			modifiers: liveModifiers,
+			isRepeat: false,
+			eventKind: kEventRawKeyDown
+		)
+
+		#expect(status == noErr)
+		#expect(keyDownCount == 1)
+
+		_ = hotKey
+	}
+
+	@Test
+	func `keypad Clear shortcuts match raw events with synthesized Fn`() {
+		let shortcut = KeyboardShortcuts.Shortcut(.keypadClear, modifiers: .control)
+		var keyDownCount = 0
+
+		let hotKey = HotKey(
+			carbonKeyCode: shortcut.carbonKeyCode,
+			carbonModifiers: shortcut.carbonModifiers,
+			onKeyDown: {
+				keyDownCount += 1
+			},
+			onKeyUp: {}
+		)
+
+		#expect(hotKey != nil)
+
+		let status = HotKeyCenter.shared.handleRawKeyEvent(
+			keyCode: shortcut.carbonKeyCode,
+			modifiers: shortcut.carbonModifiers | NSEvent.ModifierFlags.function.carbon,
+			isRepeat: false,
+			eventKind: kEventRawKeyDown
+		)
+
+		#expect(status == noErr)
+		#expect(keyDownCount == 1)
+
+		_ = hotKey
+	}
+
+	@Test
+	func `raw event matching preserves explicit Fn for keypad Enter`() {
+		let shortcut = KeyboardShortcuts.Shortcut(.keypadEnter, modifiers: [.function, .control])
+		var keyDownCount = 0
+
+		let hotKey = HotKey(
+			carbonKeyCode: shortcut.carbonKeyCode,
+			carbonModifiers: shortcut.carbonModifiers,
+			onKeyDown: {
+				keyDownCount += 1
+			},
+			onKeyUp: {}
+		)
+
+		#expect(hotKey != nil)
+
+		let statusWithoutFunctionModifier = HotKeyCenter.shared.handleRawKeyEvent(keyCode: shortcut.carbonKeyCode, modifiers: controlKey, isRepeat: false, eventKind: kEventRawKeyDown)
+		let statusWithFunctionModifier = HotKeyCenter.shared.handleRawKeyEvent(keyCode: shortcut.carbonKeyCode, modifiers: shortcut.carbonModifiers, isRepeat: false, eventKind: kEventRawKeyDown)
+
+		#expect(statusWithoutFunctionModifier == OSStatus(eventNotHandledErr))
+		#expect(statusWithFunctionModifier == noErr)
+		#expect(keyDownCount == 1)
+
+		_ = hotKey
+	}
+
+	@Test
+	func `generic shortcuts preserve the Fn modifier`() {
+		let functionModifier = NSEvent.ModifierFlags.function.carbon
+		let shortcut = KeyboardShortcuts.Shortcut(carbonKeyCode: kVK_ANSI_C, carbonModifiers: functionModifier | controlKey)
+
+		#expect(shortcut == KeyboardShortcuts.Shortcut(.c, modifiers: [.function, .control]))
+		#expect(shortcut != KeyboardShortcuts.Shortcut(.c, modifiers: .control))
+	}
+
+	@Test
+	func `event shortcuts strip Fn modifiers`() throws {
+		let functionKeyEvent = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.function, .control], timestamp: 0, windowNumber: 0, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: UInt16(kVK_F12)))
+		let ordinaryKeyEvent = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.function, .control], timestamp: 0, windowNumber: 0, context: nil, characters: "c", charactersIgnoringModifiers: "c", isARepeat: false, keyCode: UInt16(kVK_ANSI_C)))
+
+		#expect(KeyboardShortcuts.Shortcut(event: functionKeyEvent) == KeyboardShortcuts.Shortcut(.f12, modifiers: .control))
+		#expect(KeyboardShortcuts.Shortcut(event: ordinaryKeyEvent) == KeyboardShortcuts.Shortcut(.c, modifiers: .control))
+	}
+
+	@Test
+	func `system shortcuts normalize Fn only for intrinsic keys`() {
+		let functionModifier = NSEvent.ModifierFlags.function.carbon
+		let intrinsicKeyCodes = KeyboardShortcuts.Key.functionKeys.map(\.rawValue) + [
+			kVK_ANSI_KeypadClear,
+			kVK_Help,
+			kVK_ForwardDelete,
+			kVK_Home,
+			kVK_End,
+			kVK_PageUp,
+			kVK_PageDown,
+			kVK_UpArrow,
+			kVK_RightArrow,
+			kVK_DownArrow,
+			kVK_LeftArrow
+		]
+
+		for keyCode in intrinsicKeyCodes {
+			let shortcut = KeyboardShortcuts.Shortcut(carbonKeyCode: keyCode, carbonModifiers: functionModifier | controlKey).removingSynthesizedFunctionModifier
+			#expect(shortcut.modifiers == .control)
+		}
+
+		let ordinaryShortcut = KeyboardShortcuts.Shortcut(carbonKeyCode: kVK_ANSI_C, carbonModifiers: functionModifier | controlKey).removingSynthesizedFunctionModifier
+		#expect(ordinaryShortcut.modifiers == [.function, .control])
+	}
+
+	@Test
+	func `raw event matching preserves Fn for ordinary keys`() {
+		let shortcut = KeyboardShortcuts.Shortcut(.c, modifiers: [.function, .control])
+		var keyDownCount = 0
+
+		let hotKey = HotKey(
+			carbonKeyCode: shortcut.carbonKeyCode,
+			carbonModifiers: shortcut.carbonModifiers,
+			onKeyDown: {
+				keyDownCount += 1
+			},
+			onKeyUp: {}
+		)
+
+		#expect(hotKey != nil)
+
+		let statusWithoutFunctionModifier = HotKeyCenter.shared.handleRawKeyEvent(keyCode: shortcut.carbonKeyCode, modifiers: controlKey, isRepeat: false, eventKind: kEventRawKeyDown)
+		let statusWithFunctionModifier = HotKeyCenter.shared.handleRawKeyEvent(keyCode: shortcut.carbonKeyCode, modifiers: shortcut.carbonModifiers, isRepeat: false, eventKind: kEventRawKeyDown)
+
+		#expect(statusWithoutFunctionModifier == OSStatus(eventNotHandledErr))
+		#expect(statusWithFunctionModifier == noErr)
+		#expect(keyDownCount == 1)
+
+		_ = hotKey
 	}
 
 	@Test("Repeated raw key down events are ignored")

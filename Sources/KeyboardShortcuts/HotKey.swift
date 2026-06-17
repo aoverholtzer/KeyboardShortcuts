@@ -115,9 +115,17 @@ final class HotKeyCenter {
 		EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventRawKeyUp))
 	]
 
-	private lazy var keyEventMonitor = RunLoopLocalEventMonitor(events: [.keyDown, .keyUp], runLoopMode: .eventTracking) { [weak self] event in
+	private lazy var runLoopKeyEventMonitor = RunLoopLocalEventMonitor(events: [.keyDown, .keyUp], runLoopMode: .eventTracking) { [weak self] event in
+		self?.handleKeyEvent(event) ?? event
+	}
+
+	// The run-loop and AppKit monitors are complementary: menu tracking consumes some keys before AppKit dispatches them, while function keys such as F2 can instead arrive through `NSApplication.sendEvent(_:)`.
+	private lazy var appKitKeyEventMonitor = LocalEventMonitor(events: [.keyDown, .keyUp]) { [weak self] event in
+		self?.handleKeyEvent(event) ?? event
+	}
+
+	private func handleKeyEvent(_ event: NSEvent) -> NSEvent? {
 		guard
-			let self,
 			handleRawKeyEvent(
 				keyCode: Int(event.keyCode),
 				modifiers: event.modifiers.carbon,
@@ -319,7 +327,7 @@ final class HotKeyCenter {
 		}
 
 		eventHandler = handler
-		updateEventHandler()
+		// Do not update state here: this setup runs only once, while `register(_:)` must apply the current state after every hot key is added.
 	}
 
 	private func updateEventHandler() {
@@ -363,9 +371,11 @@ final class HotKeyCenter {
 
 		if #available(macOS 14, *) {
 			if isEnabled {
-				keyEventMonitor.start()
+				runLoopKeyEventMonitor.start()
+				appKitKeyEventMonitor.start()
 			} else {
-				keyEventMonitor.stop()
+				runLoopKeyEventMonitor.stop()
+				appKitKeyEventMonitor.stop()
 			}
 		} else if isEnabled {
 			AddEventTypesToHandler(eventHandler, rawKeyEventTypes.count, rawKeyEventTypes)
@@ -475,10 +485,11 @@ final class HotKeyCenter {
 			return OSStatus(eventNotHandledErr)
 		}
 
-		let normalizedEventModifiers = normalizeModifiers(modifiers)
+		// Raw events carry a synthesized Fn bit for function and navigation keys. Normalize both sides because callers can register a shortcut through the generic Carbon initializer.
+		let eventShortcut = KeyboardShortcuts.Shortcut(carbonKeyCode: keyCode, carbonModifiers: modifiers).removingSynthesizedFunctionModifier
 
 		guard let hotKey = hotKeys.values.lazy.compactMap(\.value).first(where: {
-			$0.carbonKeyCode == keyCode && normalizeModifiers($0.carbonModifiers) == normalizedEventModifiers
+			KeyboardShortcuts.Shortcut(carbonKeyCode: $0.carbonKeyCode, carbonModifiers: $0.carbonModifiers).removingSynthesizedFunctionModifier == eventShortcut
 		}) else {
 			return OSStatus(eventNotHandledErr)
 		}
@@ -493,11 +504,6 @@ final class HotKeyCenter {
 		default:
 			return OSStatus(eventNotHandledErr)
 		}
-	}
-
-	private func normalizeModifiers(_ carbonModifiers: Int) -> Int {
-		// Carbon modifiers can be stored in multiple equivalent forms; normalize so raw events match registered shortcuts.
-		NSEvent.ModifierFlags(carbon: carbonModifiers).carbon
 	}
 }
 

@@ -82,6 +82,10 @@ final class LocalEventMonitor {
 
 	@discardableResult
 	func start() -> Self {
+		guard monitor == nil else {
+			return self
+		}
+
 		monitor = NSEvent.addLocalMonitorForEvents(matching: events, handler: callback) as AnyObject
 		return self
 	}
