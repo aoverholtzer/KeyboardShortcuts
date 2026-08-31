@@ -14,6 +14,10 @@ I'm happy to accept more configurability and features. PRs welcome! What you see
 
 macOS 10.15+
 
+## Version
+
+3.0.1
+
 ## Install
 
 Add `https://github.com/sindresorhus/KeyboardShortcuts` in the [“Swift Package Manager” tab in Xcode](https://developer.apple.com/documentation/xcode/adding_package_dependencies_to_your_app).
@@ -141,15 +145,47 @@ See [`NSMenuItem#setShortcut`](https://github.com/sindresorhus/KeyboardShortcuts
 
 Your app might need to support keyboard shortcuts for user-defined actions. Normally, you would statically register the keyboard shortcuts upfront in `extension KeyboardShortcuts.Name {}`. However, this is not a requirement. It's only for convenience so that you can use dot-syntax when calling various APIs (for example, `.onKeyDown(.unicornMode) {}`). You can create `KeyboardShortcuts.Name`'s dynamically and store them yourself. You can see this in action in the example project.
 
-#### Default keyboard shortcuts
+#### Hard-coded keyboard shortcuts
 
-Setting a default keyboard shortcut can be useful if you're migrating from a different package or just making something for yourself. However, please do not set this for a publicly distributed app. Users find it annoying when random apps steal their existing keyboard shortcuts. It’s generally better to show a welcome screen on the first app launch that lets the user set the shortcut.
+If you need a hard-coded global shortcut, you can listen to a `KeyboardShortcuts.Shortcut` directly.
+
+```swift
+import KeyboardShortcuts
+
+let shortcut = KeyboardShortcuts.Shortcut(.a, modifiers: [.command])
+
+Task {
+	for await eventType in KeyboardShortcuts.events(for: shortcut) where eventType == .keyUp {
+		// Do something.
+	}
+}
+```
+
+Prefer user-customizable shortcuts whenever possible.
+
+#### Repeat while held
+
+If you need repeated actions while the shortcut is held, use `repeatingKeyDownEvents(for:)`. It emits once on initial press, then repeats using the system key repeat settings. (macOS 13+)
+
+```swift
+import KeyboardShortcuts
+
+Task {
+	for await _ in KeyboardShortcuts.repeatingKeyDownEvents(for: .moveSelectionDown) {
+		// Move to the next item.
+	}
+}
+```
+
+#### Initial keyboard shortcuts
+
+Setting an initial keyboard shortcut can be useful if you're migrating from a different package or just making something for yourself. However, please do not set this for a publicly distributed app. Users find it annoying when random apps steal their existing keyboard shortcuts. It’s generally better to show a welcome screen on the first app launch that lets the user set the shortcut.
 
 ```swift
 import KeyboardShortcuts
 
 extension KeyboardShortcuts.Name {
-	static let toggleUnicornMode = Self("toggleUnicornMode", default: .init(.k, modifiers: [.command, .option]))
+	static let toggleUnicornMode = Self("toggleUnicornMode", initial: .init(.k, modifiers: [.command, .option]))
 }
 ```
 
@@ -218,9 +254,7 @@ This package:
 - More mature.
 - More localizations.
 
-#### How is it different from [`HotKey`](https://github.com/soffes/HotKey)?
-
-`HotKey` is good for adding hard-coded keyboard shortcuts, but it doesn't provide any UI component for the user to choose their own keyboard shortcuts.
+<!-- For migration recipes, see the [migration guide](Sources/KeyboardShortcuts/KeyboardShortcuts.docc/Migration.md). -->
 
 #### Why is this package importing `Carbon`? Isn't that deprecated?
 
@@ -230,9 +264,32 @@ Most of the Carbon APIs were deprecated years ago, but there are some left that 
 
 No.
 
-#### How can I add an app-specific keyboard shortcut that is only active when the app is?
+#### Can I use this for customizable in-app keyboard shortcuts?
 
-That is outside the scope of this package. You can either use [`NSEvent.addLocalMonitorForEvents`](https://developer.apple.com/documentation/appkit/nsevent/1534971-addlocalmonitorforevents), [`NSMenuItem` with keyboard shortcut](https://developer.apple.com/documentation/appkit/nsmenuitem/2880316-allowskeyequivalentwhenhidden) (it can even be hidden), or SwiftUI's [`View#keyboardShortcut()` modifier](https://developer.apple.com/documentation/swiftui/form/keyboardshortcut(_:)).
+Yes. Use `KeyboardShortcuts.Recorder` with a `Binding<KeyboardShortcuts.Shortcut?>` to let users record a shortcut without registering any global hotkey, then apply it with `.keyboardShortcut(shortcut?.toSwiftUI)`. The shortcut only fires when your app is focused. To persist it across launches, save it to `UserDefaults` or `@AppStorage` yourself.
+
+```swift
+import SwiftUI
+import KeyboardShortcuts
+
+struct ContentView: View {
+	@State private var shortcut: KeyboardShortcuts.Shortcut?
+
+	var body: some View {
+		VStack {
+			KeyboardShortcuts.Recorder("Record shortcut", shortcut: $shortcut)
+			Button("Perform Action") {
+				performAction()
+			}
+			.keyboardShortcut(shortcut?.toSwiftUI)
+		}
+	}
+}
+```
+
+#### Can I use custom storage for shortcuts?
+
+Yes. Use `KeyboardShortcuts.Recorder` with `shortcut: Binding<KeyboardShortcuts.Shortcut?>` to read and write shortcuts from your own storage, and use `KeyboardShortcuts.events(for: shortcut)` to listen to those shortcuts.
 
 #### Does it support media keys?
 

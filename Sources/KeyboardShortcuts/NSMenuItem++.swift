@@ -1,13 +1,36 @@
 #if os(macOS)
 import AppKit
 
+// Workaround for a Swift 6.3 compiler crash (SR/rdar) where the optimizer crashes on deinit of a
+// generic class nested inside an extension. Using a concrete non-generic class avoids the bug.
+// https://github.com/sindresorhus/KeyboardShortcuts/issues/240
+private final class WeakMenuItem: @unchecked Sendable {
+	weak var value: NSMenuItem?
+
+	init(_ value: NSMenuItem) {
+		self.value = value
+	}
+}
+
 extension NSMenuItem {
-	private enum AssociatedKeys {
-		@MainActor
-		static let observer = ObjectAssociation<NSObjectProtocol>()
+	private struct FallbackShortcut: Sendable {
+		let keyEquivalent: String
+		let modifierMask: NSEvent.ModifierFlags
 	}
 
-	@MainActor
+	private enum AssociatedKeys {
+		static let observer = ObjectAssociation<NSObjectProtocol>()
+		static let fallback = ObjectAssociation<FallbackShortcut>()
+		static let boundName = ObjectAssociation<KeyboardShortcuts.Name>()
+	}
+
+	/**
+	Returns the shortcut name currently bound with `setShortcut(for:)`.
+	*/
+	var keyboardShortcutsBoundName: KeyboardShortcuts.Name? {
+		AssociatedKeys.boundName[self]
+	}
+
 	private func clearShortcut() {
 		keyEquivalent = ""
 		keyEquivalentModifierMask = []
@@ -15,6 +38,42 @@ extension NSMenuItem {
 		if #available(macOS 12, *) {
 			allowsAutomaticKeyEquivalentLocalization = true
 		}
+	}
+
+	private func restoreShortcut() {
+		if let fallback = AssociatedKeys.fallback[self] {
+			keyEquivalent = fallback.keyEquivalent
+			keyEquivalentModifierMask = fallback.modifierMask
+
+			if #available(macOS 12, *) {
+				allowsAutomaticKeyEquivalentLocalization = true
+			}
+		} else {
+			clearShortcut()
+		}
+	}
+
+	private func applyShortcut(_ shortcut: KeyboardShortcuts.Shortcut?) {
+		guard let shortcut else {
+			clearShortcut()
+			return
+		}
+
+		keyEquivalent = shortcut.nsMenuItemKeyEquivalent ?? ""
+		keyEquivalentModifierMask = shortcut.modifiers
+
+		if #available(macOS 12, *) {
+			allowsAutomaticKeyEquivalentLocalization = false
+		}
+	}
+
+	private func removeShortcutObserver() {
+		guard let existingObserver = AssociatedKeys.observer[self] else {
+			return
+		}
+
+		NotificationCenter.default.removeObserver(existingObserver)
+		AssociatedKeys.observer[self] = nil
 	}
 
 	// TODO: Make this a getter/setter. We must first add the ability to create a `Shortcut` from a `keyEquivalent`.
@@ -25,7 +84,7 @@ extension NSMenuItem {
 
 	Pass in `nil` to clear the keyboard shortcut.
 
-	This method overrides `.keyEquivalent` and `.keyEquivalentModifierMask`.
+	This method overrides `.keyEquivalent` and `.keyEquivalentModifierMask`. The original values are preserved and restored when the global shortcut is cleared.
 
 	```swift
 	import AppKit
@@ -46,33 +105,54 @@ extension NSMenuItem {
 
 	- Important: You will have to disable the global keyboard shortcut while the menu is open, as otherwise, the keyboard events will be buffered up and triggered when the menu closes. This is because `NSMenu` puts the thread in tracking-mode, which prevents the keyboard events from being received. You can listen to whether a menu is open by implementing `NSMenuDelegate#menuWillOpen` and `NSMenuDelegate#menuDidClose`. You then use `KeyboardShortcuts.disable` and `KeyboardShortcuts.enable`.
 	*/
-	@MainActor
 	public func setShortcut(for name: KeyboardShortcuts.Name?) {
 		guard let name else {
-			clearShortcut()
-			NotificationCenter.default.removeObserver(AssociatedKeys.observer[self] as Any)
-			AssociatedKeys.observer[self] = nil
+			restoreShortcut()
+			AssociatedKeys.boundName[self] = nil
+			AssociatedKeys.fallback[self] = nil
+			removeShortcutObserver()
 			return
 		}
 
-		func set() {
-			let shortcut = KeyboardShortcuts.Shortcut(name: name)
-			setShortcut(shortcut)
+		if AssociatedKeys.observer[self] != nil {
+			removeShortcutObserver()
+		} else {
+			AssociatedKeys.fallback[self] = FallbackShortcut(
+				keyEquivalent: keyEquivalent,
+				modifierMask: keyEquivalentModifierMask
+			)
 		}
 
-		set()
+		let shortcut = KeyboardShortcuts.Shortcut(name: name)
+		if let shortcut {
+			applyShortcut(shortcut)
+		} else {
+			restoreShortcut()
+		}
+
+		AssociatedKeys.boundName[self] = name
+		let menuItemReference = WeakMenuItem(self)
 
 		// TODO: Use AsyncStream when targeting macOS 15.
-		AssociatedKeys.observer[self] = NotificationCenter.default.addObserver(forName: .shortcutByNameDidChange, object: nil, queue: nil) { notification in
+		AssociatedKeys.observer[self] = NotificationCenter.default.addObserver(forName: .shortcutByNameDidChange, object: nil, queue: .main) { notification in
 			guard
-				let nameInNotification = notification.userInfo?["name"] as? KeyboardShortcuts.Name,
+				let nameInNotification = notification.keyboardShortcutsName,
 				nameInNotification == name
 			else {
 				return
 			}
 
-			DispatchQueue.main.async { // TODO: Use `Task { @MainActor`
-				set()
+			MainActor.assumeIsolated {
+				guard let menuItem = menuItemReference.value else {
+					return
+				}
+
+				let shortcut = KeyboardShortcuts.Shortcut(name: name)
+				if let shortcut {
+					menuItem.applyShortcut(shortcut)
+				} else {
+					menuItem.restoreShortcut()
+				}
 			}
 		}
 	}
@@ -89,19 +169,11 @@ extension NSMenuItem {
 	- Important: You will have to disable the global keyboard shortcut while the menu is open, as otherwise, the keyboard events will be buffered up and triggered when the menu closes. This is because `NSMenu` puts the thread in tracking-mode, which prevents the keyboard events from being received. You can listen to whether a menu is open by implementing `NSMenuDelegate#menuWillOpen` and `NSMenuDelegate#menuDidClose`. You then use `KeyboardShortcuts.disable` and `KeyboardShortcuts.enable`.
 	*/
 	@_disfavoredOverload
-	@MainActor
 	public func setShortcut(_ shortcut: KeyboardShortcuts.Shortcut?) {
-		guard let shortcut else {
-			clearShortcut()
-			return
-		}
-
-		keyEquivalent = shortcut.nsMenuItemKeyEquivalent ?? ""
-		keyEquivalentModifierMask = shortcut.modifiers
-
-		if #available(macOS 12, *) {
-			allowsAutomaticKeyEquivalentLocalization = false
-		}
+		removeShortcutObserver()
+		AssociatedKeys.boundName[self] = nil
+		AssociatedKeys.fallback[self] = nil
+		applyShortcut(shortcut)
 	}
 }
 #endif

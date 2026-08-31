@@ -1,4 +1,10 @@
 import SwiftUI
+#if DEBUG
+import os
+#endif
+#if DEBUG && canImport(OSLog)
+import OSLog
+#endif
 
 #if os(macOS)
 import Carbon.HIToolbox
@@ -15,12 +21,12 @@ extension String {
 
 
 extension Data {
-	var toString: String? { String(data: self, encoding: .utf8) }
+	nonisolated var toString: String? { String(data: self, encoding: .utf8) }
 }
 
 
 extension NSEvent {
-	var isKeyEvent: Bool { type == .keyDown || type == .keyUp }
+	nonisolated var isKeyEvent: Bool { type == .keyDown || type == .keyUp }
 }
 
 
@@ -70,7 +76,7 @@ final class LocalEventMonitor {
 		self.callback = callback
 	}
 
-	deinit {
+	isolated deinit {
 		stop()
 	}
 
@@ -86,6 +92,7 @@ final class LocalEventMonitor {
 		}
 
 		NSEvent.removeMonitor(monitor)
+		self.monitor = nil
 	}
 }
 
@@ -94,6 +101,7 @@ final class RunLoopLocalEventMonitor {
 	private let runLoopMode: RunLoop.Mode
 	private let callback: (NSEvent) -> NSEvent?
 	private let observer: CFRunLoopObserver
+	private var isStarted = false
 
 	init(
 		events: NSEvent.EventTypeMask,
@@ -102,26 +110,25 @@ final class RunLoopLocalEventMonitor {
 	) {
 		self.runLoopMode = runLoopMode
 		self.callback = callback
+		let handledEventTypes = events.rawValue
+		var pendingEvents = [NSEvent]()
 
 		self.observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeSources.rawValue, true, 0) { _, _ in
 			// Pull all events from the queue and handle the ones matching the given types.
 			// Non-matching events are left untouched, maintaining their order in the queue.
-
-			var eventsToHandle = [NSEvent]()
+			pendingEvents.removeAll(keepingCapacity: true)
 
 			// Retrieve all events from the event queue to preserve their order (instead of using the `matching` parameter).
-			while let eventToHandle = NSApp.nextEvent(matching: .any, until: nil, inMode: .default, dequeue: true) {
-				eventsToHandle.append(eventToHandle)
+			while let event = NSApp.nextEvent(matching: .any, until: nil, inMode: runLoopMode, dequeue: true) {
+				pendingEvents.append(event)
 			}
 
 			// Iterate over the gathered events, instead of doing it directly in the `while` loop, to avoid potential infinite loops caused by re-retrieving undiscarded events.
-			for eventToHandle in eventsToHandle {
-				var handledEvent: NSEvent?
-
-				if !events.contains(NSEvent.EventTypeMask(rawValue: 1 << eventToHandle.type.rawValue)) {
-					handledEvent = eventToHandle
-				} else if let callbackEvent = callback(eventToHandle) {
-					handledEvent = callbackEvent
+			for eventToHandle in pendingEvents {
+				let handledEvent = if handledEventTypes & (1 << eventToHandle.type.rawValue) == 0 {
+					eventToHandle
+				} else {
+					callback(eventToHandle)
 				}
 
 				guard let handledEvent else {
@@ -133,17 +140,27 @@ final class RunLoopLocalEventMonitor {
 		}
 	}
 
-	deinit {
+	isolated deinit {
 		stop()
 	}
 
 	@discardableResult
 	func start() -> Self {
+		guard !isStarted else {
+			return self
+		}
+
+		isStarted = true
 		CFRunLoopAddObserver(RunLoop.current.getCFRunLoop(), observer, CFRunLoopMode(runLoopMode.rawValue as CFString))
 		return self
 	}
 
 	func stop() {
+		guard isStarted else {
+			return
+		}
+
+		isStarted = false
 		CFRunLoopRemoveObserver(RunLoop.current.getCFRunLoop(), observer, CFRunLoopMode(runLoopMode.rawValue as CFString))
 	}
 }
@@ -257,17 +274,17 @@ extension NSAlert {
 
 enum UnicodeSymbols {
 	/**
-	Represents the Function (Fn) key on the keybord.
+	Represents the Function (Fn) key on the keyboard.
 	*/
-	static let functionKey = "🌐\u{FE0E}"
+	nonisolated static let functionKey = "🌐\u{FE0E}"
 }
 
 
 extension NSEvent.ModifierFlags {
 	// Not documented anywhere, but reverse-engineered by me.
-	private static let functionKey = 1 << 17 // 131072 (0x20000)
+	nonisolated private static let functionKey = 1 << 17 // 131072 (0x20000)
 
-	var carbon: Int {
+	nonisolated var carbon: Int {
 		var modifierFlags = 0
 
 		if contains(.control) {
@@ -293,7 +310,7 @@ extension NSEvent.ModifierFlags {
 		return modifierFlags
 	}
 
-	init(carbon: Int) {
+	nonisolated init(carbon: Int) {
 		self.init()
 
 		if carbon & controlKey == controlKey {
@@ -320,11 +337,11 @@ extension NSEvent.ModifierFlags {
 
 extension SwiftUI.EventModifiers {
 	// `.function` is deprecated, so we use the raw value.
-	fileprivate static let function_nonDeprecated = Self(rawValue: 64)
+	nonisolated fileprivate static let function_nonDeprecated = Self(rawValue: 64)
 }
 
 extension NSEvent.ModifierFlags {
-	var toEventModifiers: SwiftUI.EventModifiers {
+	nonisolated var toEventModifiers: SwiftUI.EventModifiers {
 		var modifiers = SwiftUI.EventModifiers()
 
 		if contains(.capsLock) {
@@ -385,7 +402,7 @@ extension NSEvent.ModifierFlags {
 	//=> "⇧⌘"
 	```
 	*/
-	public var ks_symbolicRepresentation: String {
+	nonisolated public var ks_symbolicRepresentation: String {
 		var description = ""
 
 		if contains(.control) {
@@ -414,7 +431,7 @@ extension NSEvent.ModifierFlags {
 
 
 extension NSEvent.SpecialKey {
-	static let functionKeys: Set<Self> = [
+	nonisolated(unsafe) static let functionKeys: Set<Self> = [
 		.f1,
 		.f2,
 		.f3,
@@ -452,7 +469,7 @@ extension NSEvent.SpecialKey {
 		.f35
 	]
 
-	var isFunctionKey: Bool { Self.functionKeys.contains(self) }
+	nonisolated var isFunctionKey: Bool { Self.functionKeys.contains(self) }
 }
 
 
@@ -479,7 +496,16 @@ enum AssociationPolicy {
 	}
 }
 
-final class ObjectAssociation<T> {
+// Workaround for a Swift compiler crash where the optimizer (`EarlyPerfInliner`) crashes on the
+// isolated `deinit` of a generic `@MainActor` class when the deployment target is below the
+// isolated-deinit availability floor. Making `ObjectAssociation` a struct (no deinit) and using a
+// concrete non-generic class for the association key avoids the bug.
+// https://github.com/sindresorhus/KeyboardShortcuts/issues/240
+// https://github.com/swiftlang/swift/issues/89896
+private final class ObjectAssociationKey {}
+
+struct ObjectAssociation<T> {
+	private let key = ObjectAssociationKey()
 	private let policy: AssociationPolicy
 
 	init(policy: AssociationPolicy = .retainNonatomic) {
@@ -490,10 +516,10 @@ final class ObjectAssociation<T> {
 		get {
 			// Force-cast is fine here as we want it to fail loudly if we don't use the correct type.
 			// swiftlint:disable:next force_cast
-			objc_getAssociatedObject(index, Unmanaged.passUnretained(self).toOpaque()) as! T?
+			objc_getAssociatedObject(index, Unmanaged.passUnretained(key).toOpaque()) as! T?
 		}
-		set {
-			objc_setAssociatedObject(index, Unmanaged.passUnretained(self).toOpaque(), newValue, policy.rawValue)
+		nonmutating set {
+			objc_setAssociatedObject(index, Unmanaged.passUnretained(key).toOpaque(), newValue, policy.rawValue)
 		}
 	}
 }
@@ -501,12 +527,12 @@ final class ObjectAssociation<T> {
 
 extension HorizontalAlignment {
 	private enum ControlAlignment: AlignmentID {
-		static func defaultValue(in context: ViewDimensions) -> CGFloat { // swiftlint:disable:this no_cgfloat
+		nonisolated static func defaultValue(in context: ViewDimensions) -> CGFloat { // swiftlint:disable:this no_cgfloat
 			context[HorizontalAlignment.center]
 		}
 	}
 
-	fileprivate static let controlAlignment = Self(ControlAlignment.self)
+	nonisolated fileprivate static let controlAlignment = Self(ControlAlignment.self)
 }
 
 extension View {
@@ -521,9 +547,59 @@ extension View {
 }
 
 
-extension Dictionary {
-	func hasKey(_ key: Key) -> Bool {
-		index(forKey: key) != nil
+#if DEBUG
+/**
+Get SwiftUI dynamic shared object.
+
+Reference: https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/dyld.3.html
+*/
+@usableFromInline
+nonisolated(unsafe) let dynamicSharedObject: UnsafeMutableRawPointer = {
+	let imageCount = _dyld_image_count()
+	for imageIndex in 0..<imageCount {
+		guard
+			let name = _dyld_get_image_name(imageIndex),
+			// Use `/SwiftUI` instead of `SwiftUI` to prevent any library named `XXSwiftUI`.
+			String(cString: name).hasSuffix("/SwiftUI"),
+			let header = _dyld_get_image_header(imageIndex)
+		else {
+			continue
+		}
+
+		return UnsafeMutableRawPointer(mutating: header)
+	}
+
+	return UnsafeMutableRawPointer(mutating: #dsohandle)
+}()
+#endif
+
+@_transparent
+@usableFromInline
+nonisolated func runtimeWarn(
+	_ condition: @autoclosure () -> Bool, _ message: @autoclosure () -> String
+) {
+#if DEBUG
+#if canImport(OSLog)
+	let condition = condition()
+	if !condition {
+		os_log(
+			.fault,
+			// A token that identifies the containing executable or dylib image.
+			dso: dynamicSharedObject,
+			log: OSLog(subsystem: "com.apple.runtime-issues", category: "KeyboardShortcuts"),
+			"%@",
+			message()
+		)
+	}
+#else
+	assert(condition(), message())
+#endif
+#endif
+}
+
+extension KeyboardShortcuts {
+	nonisolated static func isValidShortcutName(_ name: String) -> Bool {
+		!name.contains(".")
 	}
 }
 #endif
@@ -550,13 +626,6 @@ extension Sequence where Element: Hashable {
 }
 
 
-extension Set {
-	/**
-	Convert a `Set` to an `Array`.
-	*/
-	func toArray() -> [Element] { Array(self) }
-}
-
 
 extension StringProtocol {
 	func replacingPrefix(_ prefix: String, with replacement: String) -> String {
@@ -575,5 +644,20 @@ extension Character {
 		}
 
 		self = Character(content)
+	}
+}
+
+enum NotificationUserInfoKey {
+	nonisolated static let name = "name"
+	nonisolated static let isActive = "isActive"
+}
+
+extension Notification {
+	nonisolated var keyboardShortcutsName: KeyboardShortcuts.Name? {
+		userInfo?[NotificationUserInfoKey.name] as? KeyboardShortcuts.Name
+	}
+
+	nonisolated var recorderIsActive: Bool {
+		(userInfo?[NotificationUserInfoKey.isActive] as? Bool) ?? false
 	}
 }
