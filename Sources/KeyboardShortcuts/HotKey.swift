@@ -89,7 +89,7 @@ final class HotKeyCenter {
 	private var openMenuObserver: NSObjectProtocol?
 	private var closeMenuObserver: NSObjectProtocol?
 	private var isEnabled = true
-	private var isMenuOpen = false {
+	public var isMenuOpen = false {
 		didSet {
 			guard isMenuOpen != oldValue else {
 				return
@@ -502,7 +502,7 @@ final class HotKeyCenter {
 }
 
 // Global C callback for Carbon event handler
-nonisolated private func carbonEventHandler(
+nonisolated public func carbonEventHandler(
 	_: EventHandlerCallRef?,
 	event: EventRef?,
 	userData: UnsafeMutableRawPointer?

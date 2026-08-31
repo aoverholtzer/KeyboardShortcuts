@@ -69,7 +69,7 @@ enum CarbonKeyboardShortcuts {
 		var handler: EventHandlerRef?
 		let error = InstallEventHandler(
 			dispatcher,
-			carbonKeyboardShortcutsEventHandler,
+			carbonEventHandler,
 			0,
 			nil,
 			nil,
@@ -94,7 +94,7 @@ enum CarbonKeyboardShortcuts {
 		}
 
 		if KeyboardShortcuts.isEnabled {
-			if KeyboardShortcuts.isMenuOpen {
+			if HotKeyCenter.shared.isMenuOpen {
 				softUnregisterAll()
 				RemoveEventTypesFromHandler(eventHandler, hotKeyEventTypes.count, hotKeyEventTypes)
 
