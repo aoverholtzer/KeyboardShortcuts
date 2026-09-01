@@ -1,4 +1,4 @@
-// swift-tools-version:5.11
+// swift-tools-version:6.2
 import PackageDescription
 
 let package = Package(
@@ -17,12 +17,22 @@ let package = Package(
 	],
 	targets: [
 		.target(
-			name: "KeyboardShortcuts"
+			name: "KeyboardShortcuts",
+			swiftSettings: [
+				.defaultIsolation(MainActor.self),
+				.enableUpcomingFeature("NonisolatedNonsendingByDefault"),
+				.enableUpcomingFeature("InferIsolatedConformances")
+			]
 		),
 		.testTarget(
 			name: "KeyboardShortcutsTests",
 			dependencies: [
 				"KeyboardShortcuts"
+			],
+			swiftSettings: [
+				.defaultIsolation(MainActor.self),
+				.enableUpcomingFeature("NonisolatedNonsendingByDefault"),
+				.enableUpcomingFeature("InferIsolatedConformances")
 			]
 		)
 	]

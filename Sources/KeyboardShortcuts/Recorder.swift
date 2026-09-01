@@ -2,18 +2,83 @@
 import SwiftUI
 
 extension KeyboardShortcuts {
+	enum ShortcutSource {
+		case name(Name)
+		case binding(Binding<Shortcut?>)
+
+		var binding: Binding<Shortcut?>? {
+			if case .binding(let binding) = self { binding } else { nil }
+		}
+	}
+
 	private struct _Recorder: NSViewRepresentable { // swiftlint:disable:this type_name
 		typealias NSViewType = RecorderCocoa
 
-		let name: Name
+		let source: ShortcutSource
 		let onChange: ((_ shortcut: Shortcut?) -> Void)?
+		let validateShortcut: ((_ shortcut: Shortcut) -> ValidationResult)?
+
+		final class Coordinator {
+			var shortcutBinding: Binding<Shortcut?>?
+			var onChange: ((_ shortcut: Shortcut?) -> Void)?
+
+			init(
+				shortcutBinding: Binding<Shortcut?>?,
+				onChange: ((_ shortcut: Shortcut?) -> Void)?
+			) {
+				self.shortcutBinding = shortcutBinding
+				self.onChange = onChange
+			}
+
+			func handleChange(_ shortcut: Shortcut?) {
+				shortcutBinding?.wrappedValue = shortcut
+				onChange?(shortcut)
+			}
+		}
+
+		func makeCoordinator() -> Coordinator {
+			.init(shortcutBinding: source.binding, onChange: onChange)
+		}
 
 		func makeNSView(context: Context) -> NSViewType {
-			.init(for: name, onChange: onChange)
+			let coordinator = context.coordinator
+
+			let recorder: RecorderCocoa
+			switch source {
+			case .name(let name):
+				recorder = .init(for: name) { shortcut in
+					coordinator.handleChange(shortcut)
+				}
+			case .binding(let binding):
+				recorder = .init(shortcut: binding.wrappedValue) { shortcut in
+					coordinator.handleChange(shortcut)
+				}
+			}
+
+			recorder.validateShortcut = validateShortcut
+			recorder.conflictPolicy = context.environment.keyboardShortcutsConflictPolicy
+
+			return recorder
 		}
 
 		func updateNSView(_ nsView: NSViewType, context: Context) {
-			nsView.shortcutName = name
+			let coordinator = context.coordinator
+			coordinator.onChange = onChange
+			nsView.validateShortcut = validateShortcut
+			nsView.conflictPolicy = context.environment.keyboardShortcutsConflictPolicy
+
+			switch source {
+			case .name(let name):
+				nsView.shortcutName = name
+			case .binding(let binding):
+				coordinator.shortcutBinding = binding
+
+				guard nsView.shortcut != binding.wrappedValue else {
+					return
+				}
+
+				nsView.shortcut = binding.wrappedValue
+			}
 		}
 	}
 
@@ -24,7 +89,9 @@ extension KeyboardShortcuts {
 
 	It automatically prevents choosing a keyboard shortcut that is already taken by the system or by the app's main menu by showing a user-friendly alert to the user.
 
-	It takes care of storing the keyboard shortcut in `UserDefaults` for you.
+	It takes care of storing the keyboard shortcut in `UserDefaults` for you when initialized with a name. When initialized with a binding, it reads and writes the shortcut through the binding.
+
+	- Note: When initialized with a binding, the shortcut is not automatically registered as a global hotkey. You are responsible for storing and handling the shortcut yourself.
 
 	```swift
 	import SwiftUI
@@ -42,20 +109,23 @@ extension KeyboardShortcuts {
 	- Note: Since macOS 15, for sandboxed apps, it's [no longer possible](https://developer.apple.com/forums/thread/763878?answerId=804374022#804374022) to specify the `Option` key without also using `Command` or `Control`.
 	*/
 	public struct Recorder<Label: View>: View { // swiftlint:disable:this type_name
-		private let name: Name
+		private let shortcutSource: ShortcutSource
 		private let onChange: ((Shortcut?) -> Void)?
 		private let hasLabel: Bool
 		private let label: Label
+		private var validateShortcut: ((Shortcut) -> ValidationResult)?
 
-		init(
-			for name: Name,
+		private init(
+			shortcutSource: ShortcutSource,
 			onChange: ((Shortcut?) -> Void)? = nil,
 			hasLabel: Bool,
+			validateShortcut: ((Shortcut) -> ValidationResult)? = nil,
 			@ViewBuilder label: () -> Label
 		) {
-			self.name = name
+			self.shortcutSource = shortcutSource
 			self.onChange = onChange
 			self.hasLabel = hasLabel
+			self.validateShortcut = validateShortcut
 			self.label = label()
 		}
 
@@ -63,28 +133,27 @@ extension KeyboardShortcuts {
 			if hasLabel {
 				if #available(macOS 13, *) {
 					LabeledContent {
-						_Recorder(
-							name: name,
-							onChange: onChange
-						)
+						recorderView
 					} label: {
 						label
 					}
 				} else {
-					_Recorder(
-						name: name,
-						onChange: onChange
-					)
+					recorderView
 						.formLabel {
 							label
 						}
 				}
 			} else {
-				_Recorder(
-					name: name,
-					onChange: onChange
-				)
+				recorderView
 			}
+		}
+
+		private var recorderView: some View {
+			_Recorder(
+				source: shortcutSource,
+				onChange: onChange,
+				validateShortcut: validateShortcut
+			)
 		}
 	}
 }
@@ -99,7 +168,26 @@ extension KeyboardShortcuts.Recorder<EmptyView> {
 		onChange: ((KeyboardShortcuts.Shortcut?) -> Void)? = nil
 	) {
 		self.init(
-			for: name,
+			shortcutSource: .name(name),
+			onChange: onChange,
+			hasLabel: false
+		) {}
+	}
+
+	/**
+	Creates a keyboard shortcut recorder that reads and writes to a binding.
+
+	Use this initializer when you want to manage the shortcut storage yourself instead of using the built-in `UserDefaults` storage. The shortcut is not automatically registered as a global hotkey — you are responsible for storing and handling the shortcut yourself.
+
+	- Parameter shortcut: The keyboard shortcut binding to read and write.
+	- Parameter onChange: Callback which will be called when the keyboard shortcut is changed/removed by the user.
+	*/
+	public init(
+		shortcut: Binding<KeyboardShortcuts.Shortcut?>,
+		onChange: ((KeyboardShortcuts.Shortcut?) -> Void)? = nil
+	) {
+		self.init(
+			shortcutSource: .binding(shortcut),
 			onChange: onChange,
 			hasLabel: false
 		) {}
@@ -107,6 +195,20 @@ extension KeyboardShortcuts.Recorder<EmptyView> {
 }
 
 extension KeyboardShortcuts.Recorder<Text> {
+	private init(
+		_ title: Text,
+		source: KeyboardShortcuts.ShortcutSource,
+		onChange: ((KeyboardShortcuts.Shortcut?) -> Void)?
+	) {
+		self.init(
+			shortcutSource: source,
+			onChange: onChange,
+			hasLabel: true
+		) {
+			title
+		}
+	}
+
 	/**
 	- Parameter title: The title of the keyboard shortcut recorder, describing its purpose.
 	- Parameter name: Strongly-typed keyboard shortcut name.
@@ -117,17 +219,9 @@ extension KeyboardShortcuts.Recorder<Text> {
 		name: KeyboardShortcuts.Name,
 		onChange: ((KeyboardShortcuts.Shortcut?) -> Void)? = nil
 	) {
-		self.init(
-			for: name,
-			onChange: onChange,
-			hasLabel: true
-		) {
-			Text(title)
-		}
+		self.init(Text(title), source: .name(name), onChange: onChange)
 	}
-}
 
-extension KeyboardShortcuts.Recorder<Text> {
 	/**
 	- Parameter title: The title of the keyboard shortcut recorder, describing its purpose.
 	- Parameter name: Strongly-typed keyboard shortcut name.
@@ -139,13 +233,42 @@ extension KeyboardShortcuts.Recorder<Text> {
 		name: KeyboardShortcuts.Name,
 		onChange: ((KeyboardShortcuts.Shortcut?) -> Void)? = nil
 	) {
-		self.init(
-			for: name,
-			onChange: onChange,
-			hasLabel: true
-		) {
-			Text(title)
-		}
+		self.init(Text(title), source: .name(name), onChange: onChange)
+	}
+
+	/**
+	Creates a keyboard shortcut recorder that reads and writes to a binding.
+
+	Use this initializer when you want to manage the shortcut storage yourself instead of using the built-in `UserDefaults` storage. The shortcut is not automatically registered as a global hotkey — you are responsible for storing and handling the shortcut yourself.
+
+	- Parameter title: The title of the keyboard shortcut recorder, describing its purpose.
+	- Parameter shortcut: The keyboard shortcut binding to read and write.
+	- Parameter onChange: Callback which will be called when the keyboard shortcut is changed/removed by the user.
+	*/
+	public init(
+		_ title: LocalizedStringKey,
+		shortcut: Binding<KeyboardShortcuts.Shortcut?>,
+		onChange: ((KeyboardShortcuts.Shortcut?) -> Void)? = nil
+	) {
+		self.init(Text(title), source: .binding(shortcut), onChange: onChange)
+	}
+
+	/**
+	Creates a keyboard shortcut recorder that reads and writes to a binding.
+
+	Use this initializer when you want to manage the shortcut storage yourself instead of using the built-in `UserDefaults` storage. The shortcut is not automatically registered as a global hotkey — you are responsible for storing and handling the shortcut yourself.
+
+	- Parameter title: The title of the keyboard shortcut recorder, describing its purpose.
+	- Parameter shortcut: The keyboard shortcut binding to read and write.
+	- Parameter onChange: Callback which will be called when the keyboard shortcut is changed/removed by the user.
+	*/
+	@_disfavoredOverload
+	public init(
+		_ title: String,
+		shortcut: Binding<KeyboardShortcuts.Shortcut?>,
+		onChange: ((KeyboardShortcuts.Shortcut?) -> Void)? = nil
+	) {
+		self.init(Text(title), source: .binding(shortcut), onChange: onChange)
 	}
 }
 
@@ -161,11 +284,61 @@ extension KeyboardShortcuts.Recorder {
 		@ViewBuilder label: () -> Label
 	) {
 		self.init(
-			for: name,
+			shortcutSource: .name(name),
 			onChange: onChange,
 			hasLabel: true,
 			label: label
 		)
+	}
+
+	/**
+	Creates a keyboard shortcut recorder that reads and writes to a binding.
+
+	Use this initializer when you want to manage the shortcut storage yourself instead of using the built-in `UserDefaults` storage. The shortcut is not automatically registered as a global hotkey — you are responsible for storing and handling the shortcut yourself.
+
+	- Parameter shortcut: The keyboard shortcut binding to read and write.
+	- Parameter onChange: Callback which will be called when the keyboard shortcut is changed/removed by the user.
+	- Parameter label: A view that describes the purpose of the keyboard shortcut recorder.
+	*/
+	public init(
+		shortcut: Binding<KeyboardShortcuts.Shortcut?>,
+		onChange: ((KeyboardShortcuts.Shortcut?) -> Void)? = nil,
+		@ViewBuilder label: () -> Label
+	) {
+		self.init(
+			shortcutSource: .binding(shortcut),
+			onChange: onChange,
+			hasLabel: true,
+			label: label
+		)
+	}
+}
+
+extension KeyboardShortcuts.Recorder {
+	/**
+	Validates a shortcut before it is saved.
+
+	Use this to prevent assigning shortcuts that are already in use by other actions or to block certain shortcuts.
+
+	```swift
+	KeyboardShortcuts.Recorder(for: .action1)
+		.shortcutValidation { shortcut in
+			let others: [KeyboardShortcuts.Name] = [.action2, .action3]
+
+			if let conflict = others.first(where: { $0.shortcut == shortcut }) {
+				return .disallow(reason: "This shortcut is already used by “\(conflict.rawValue)”.")
+			}
+
+			return .allow
+		}
+	```
+	*/
+	public func shortcutValidation(
+		_ validate: @escaping (_ shortcut: KeyboardShortcuts.Shortcut) -> KeyboardShortcuts.ValidationResult
+	) -> Self {
+		var copy = self
+		copy.validateShortcut = validate
+		return copy
 	}
 }
 

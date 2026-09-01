@@ -7,7 +7,7 @@ extension KeyboardShortcuts {
 	/**
 	A keyboard shortcut.
 	*/
-	public struct Shortcut: Hashable, Codable, Sendable {
+	nonisolated public struct Shortcut: Hashable, Codable, Sendable {
 		/**
 		Carbon modifiers are not always stored as the same number.
 
@@ -28,7 +28,7 @@ extension KeyboardShortcuts {
 		public var modifiers: NSEvent.ModifierFlags { NSEvent.ModifierFlags(carbon: carbonModifiers) }
 
 		/**
-		Low-level represetation of the key.
+		Low-level representation of the key.
 
 		You most likely don't need this.
 		*/
@@ -69,6 +69,7 @@ extension KeyboardShortcuts {
 		/**
 		Initialize from a keyboard shortcut stored by `Recorder` or `RecorderCocoa`.
 		*/
+		@MainActor
 		public init?(name: Name) {
 			guard let shortcut = getShortcut(for: name) else {
 				return nil
@@ -90,7 +91,7 @@ extension KeyboardShortcuts {
 }
 
 enum Constants {
-	static let isSandboxed = ProcessInfo.processInfo.environment.hasKey("APP_SANDBOX_CONTAINER_ID")
+	static let isSandboxed = ProcessInfo.processInfo.environment["APP_SANDBOX_CONTAINER_ID"] != nil
 }
 
 extension KeyboardShortcuts.Shortcut {
@@ -98,9 +99,12 @@ extension KeyboardShortcuts.Shortcut {
 	System-defined keyboard shortcuts.
 	*/
 	static var system: [Self] {
-		CarbonKeyboardShortcuts.system
+		HotKeyCenter.systemShortcuts.map {
+			Self(carbonKeyCode: $0.carbonKeyCode, carbonModifiers: $0.carbonModifiers)
+		}
 	}
 
+	// TODO: Remove this when targeting macOS 15.2. It only handles a bug present in sandboxed apps on macOS 15.0 and 15.1.
 	/**
 	Check whether the keyboard shortcut is disallowed.
 	*/
@@ -125,9 +129,13 @@ extension KeyboardShortcuts.Shortcut {
 	}
 
 	/**
-	Check whether the keyboard shortcut is already taken by the system.
+	Whether the keyboard shortcut is already taken by a system-wide shortcut.
+
+	This checks against the currently enabled system shortcuts (for example, Spotlight or Mission Control). The user can free up a conflicting shortcut by changing it in “System Settings › Keyboard › Keyboard Shortcuts”. The bare `F12` key is intentionally not considered taken.
+
+	Useful when building a custom recorder UI to match the validation `KeyboardShortcuts.Recorder` performs.
 	*/
-	var isTakenBySystem: Bool {
+	public var isTakenBySystem: Bool {
 		guard self != Self(.f12, modifiers: []) else {
 			return false
 		}
@@ -142,31 +150,43 @@ extension KeyboardShortcuts.Shortcut {
 	*/
 	@MainActor
 	func menuItemWithMatchingShortcut(in menu: NSMenu) -> NSMenuItem? {
+		menuItemsWithMatchingShortcut(in: menu).first
+	}
+
+	/**
+	Recursively finds all menu items in the given menu that have a matching key equivalent and modifier.
+	*/
+	@MainActor
+	func menuItemsWithMatchingShortcut(in menu: NSMenu) -> [NSMenuItem] {
+		var matchingMenuItems: [NSMenuItem] = []
+
 		for item in menu.items {
 			var keyEquivalent = item.keyEquivalent
 			var keyEquivalentModifierMask = item.keyEquivalentModifierMask
 
-			if modifiers.contains(.shift), keyEquivalent.lowercased() != keyEquivalent {
+			if
+				modifiers.contains(.shift),
+				keyEquivalent.lowercased() != keyEquivalent
+			{
 				keyEquivalent = keyEquivalent.lowercased()
 				keyEquivalentModifierMask.insert(.shift)
 			}
 
 			if
-				self.nsMenuItemKeyEquivalent == keyEquivalent, // Note `nil != ""`
-				self.modifiers == keyEquivalentModifierMask
+				nsMenuItemKeyEquivalent == keyEquivalent, // Note `nil != ""`
+				modifiers == keyEquivalentModifierMask
 			{
-				return item
+				matchingMenuItems.append(item)
 			}
 
 			if
-				let submenu = item.submenu,
-				let menuItem = menuItemWithMatchingShortcut(in: submenu)
+				let submenu = item.submenu
 			{
-				return menuItem
+				matchingMenuItems.append(contentsOf: menuItemsWithMatchingShortcut(in: submenu))
 			}
 		}
 
-		return nil
+		return matchingMenuItems
 	}
 
 	/**
@@ -180,10 +200,22 @@ extension KeyboardShortcuts.Shortcut {
 
 		return menuItemWithMatchingShortcut(in: mainMenu)
 	}
+
+	/**
+	Returns all menu items in the app's main menu that have a matching key equivalent and modifier.
+	*/
+	@MainActor
+	var takenByMainMenuItems: [NSMenuItem] {
+		guard let mainMenu = NSApp.mainMenu else {
+			return []
+		}
+
+		return menuItemsWithMatchingShortcut(in: mainMenu)
+	}
 }
 
 /*
-An enumeration of special keys requiring specific handling when used with `RecorderCocoa`, AppKit’s `NSMenuItem`, and SwiftUI’s `.keyboardShortcut(_:modifiers:)`.  
+An enumeration of special keys requiring specific handling when used with `RecorderCocoa`, AppKit’s `NSMenuItem`, and SwiftUI’s `.keyboardShortcut(_:modifiers:)`.
 
 Using an enumeration ensures all cases are exhaustively addressed in all three contexts, providing compile-time safety and reducing the risk of unhandled keys.
 */
@@ -665,6 +697,10 @@ extension SpecialKey {
 }
 
 extension KeyboardShortcuts.Shortcut {
+	fileprivate var specialKey: SpecialKey? {
+		key.flatMap { keyToSpecialKeyMapping[$0] }
+	}
+
 	@MainActor // `TISGetInputSourceProperty` crashes if called on a non-main thread.
 	fileprivate func keyToCharacter() -> Character? {
 		guard
@@ -674,7 +710,7 @@ extension KeyboardShortcuts.Shortcut {
 			return nil
 		}
 
-		guard key.flatMap({ keyToSpecialKeyMapping[$0] }) == nil else {
+		guard specialKey == nil else {
 			assertionFailure("Special keys should get special treatment and should not be translated using keyToCharacter()")
 			return nil
 		}
@@ -720,10 +756,7 @@ extension KeyboardShortcuts.Shortcut {
 	*/
 	@MainActor
 	public var nsMenuItemKeyEquivalent: String? {
-		if
-			let key,
-			let specialKey = keyToSpecialKeyMapping[key]
-		{
+		if let specialKey {
 			if let keyEquivalent = specialKey.appKitMenuItemKeyEquivalent {
 				return String(keyEquivalent)
 			}
@@ -747,14 +780,11 @@ extension KeyboardShortcuts.Shortcut: CustomStringConvertible {
 
 	@MainActor
 	var presentableDescription: String {
-		if
-			let key,
-			let specialKey = keyToSpecialKeyMapping[key]
-		{
-			return modifiers.presentableDescription + specialKey.presentableDescription
+		if let specialKey {
+			return modifiers.ks_symbolicRepresentation + specialKey.presentableDescription
 		}
 
-		return modifiers.presentableDescription + String(keyToCharacter() ?? "�").capitalized
+		return modifiers.ks_symbolicRepresentation + String(keyToCharacter() ?? "�").capitalized
 	}
 
 	@MainActor
@@ -765,15 +795,27 @@ extension KeyboardShortcuts.Shortcut: CustomStringConvertible {
 }
 
 extension KeyboardShortcuts.Shortcut {
+	/**
+	Converts this shortcut to a SwiftUI `KeyboardShortcut`.
+
+	Use this to apply a user-defined shortcut to a SwiftUI view using the `.keyboardShortcut(_:)` modifier.
+
+	Returns `nil` if the shortcut cannot be represented in SwiftUI (for example, certain special keys).
+
+	```swift
+	Button("Perform Action") {
+		performAction()
+	}
+	.keyboardShortcut(shortcut.toSwiftUI)
+	```
+	*/
 	@available(macOS 11, *)
 	@MainActor
-	var toSwiftUI: KeyboardShortcut? {
-		if
-			let key,
-			let specialKey = keyToSpecialKeyMapping[key]
-		{
+	public var toSwiftUI: KeyboardShortcut? {
+		if let specialKey {
 			if let keyEquivalent = specialKey.swiftUIKeyEquivalent {
 				if #available(macOS 12.0, *) {
+					// We do `localization: .custom)` since the KeyboardShortcuts shortcuts are not localized.
 					return KeyboardShortcut(keyEquivalent, modifiers: modifiers.toEventModifiers, localization: .custom)
 				} else {
 					return KeyboardShortcut(keyEquivalent, modifiers: modifiers.toEventModifiers)
