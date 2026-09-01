@@ -3,6 +3,19 @@
 import AppKit
 import Carbon.HIToolbox
 
+/// Enforces hiding the clear button on macOS 27, where clearing `cancelButtonCell` alone no
+/// longer suppresses it. `cancelButtonRectForBounds:` is documented as a custom-layout hook, so
+/// returning an empty rect keeps the button from being laid out or hit-tested.
+private final class RecorderSearchFieldCell: NSSearchFieldCell {
+	override func cancelButtonRect(forBounds rect: NSRect) -> NSRect {
+		guard (controlView as? KeyboardShortcuts.RecorderCocoa)?.hidesCancelButton == true else {
+			return super.cancelButtonRect(forBounds: rect)
+		}
+
+		return .zero
+	}
+}
+
 extension KeyboardShortcuts {
 	/**
 	A `NSView` that lets the user record a keyboard shortcut.
@@ -93,13 +106,43 @@ extension KeyboardShortcuts {
         }
 
         private func updateCancelButton() {
-//            !stringValue.isEmpty && getShortcut(for: shortcutName)?.isDefault != true
+            let buttonCell: NSButtonCell?
+
             if let shortcut = getShortcut(for: shortcutName),
                shortcut.isDefault == true {
-                (cell as? NSSearchFieldCell)?.cancelButtonCell = onInfoClicked == nil ? nil : infoButton
+                buttonCell = onInfoClicked == nil ? nil : infoButton
             } else {
-                (cell as? NSSearchFieldCell)?.cancelButtonCell = stringValue.isEmpty ? nil : cancelButton
+                buttonCell = stringValue.isEmpty ? nil : cancelButton
             }
+
+            // Set this *before* installing the cell, since the assignment triggers layout.
+            //
+            // Clearing `cancelButtonCell` is the only thing that used to hide the button, but as
+            // of macOS 27 AppKit appears to keep drawing its own clear button regardless — the
+            // same way `centersPlaceholder` was quietly turned into a no-op in macOS 12. So also
+            // zero out the button's layout rect, which is the documented subclass hook for it.
+            // Belt and braces: on macOS 26 and earlier the assignment below is what does the
+            // work, and the rect override is inert.
+            hidesCancelButton = buttonCell == nil
+            (cell as? NSSearchFieldCell)?.cancelButtonCell = buttonCell
+            needsLayout = true
+            needsDisplay = true
+        }
+
+        /// Whether the field is currently meant to show no button at all. Read by
+        /// `RecorderSearchFieldCell` and by the `cancelButtonBounds` override.
+        fileprivate var hidesCancelButton = false
+
+        @_documentation(visibility: private)
+        override public class var cellClass: AnyClass? {
+            get { RecorderSearchFieldCell.self }
+            set {} // swiftlint:disable:this unused_setter_value
+        }
+
+        @available(macOS 11.0, *)
+        @_documentation(visibility: private)
+        override public var cancelButtonBounds: NSRect {
+            hidesCancelButton ? .zero : super.cancelButtonBounds
         }
 //		private var showsCancelButton: Bool {
 //			get { (cell as? NSSearchFieldCell)?.cancelButtonCell != nil }
