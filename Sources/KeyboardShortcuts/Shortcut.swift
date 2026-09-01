@@ -44,6 +44,32 @@ extension KeyboardShortcuts {
 		// hack by adam
 		public var isDefault: Bool?
 
+		// `isDefault` records where a shortcut came from, not which keys it is, so it has to stay
+		// out of equality and hashing. Leaving it to the synthesized conformance meant a default
+		// stamped `isDefault = true` compared unequal to the very same key combination unstamped,
+		// which quietly broke anything keyed on a `Shortcut`:
+		//
+		//   - `registeredShortcuts.contains(_:)` missed, so the dedup and `isRegistered` checks
+		//     could not see an already-registered shortcut.
+		//   - `isTakenBySystem` compares against `Self.system`, which is never stamped, so a
+		//     stamped shortcut skipped the system-conflict check entirely.
+		//   - `reset()` restored a default that then compared unequal to that same default.
+		//
+		// KeyboardSwitcher already carries its own `==` overload doing exactly this; that only
+		// applies to direct concrete comparisons, not to `Set`/`Optional` and other generic
+		// contexts, which is why the breakage survived it.
+		@_documentation(visibility: private)
+		public static func == (lhs: Self, rhs: Self) -> Bool {
+			lhs.carbonKeyCode == rhs.carbonKeyCode
+				&& lhs.carbonModifiers == rhs.carbonModifiers
+		}
+
+		@_documentation(visibility: private)
+		public func hash(into hasher: inout Hasher) {
+			hasher.combine(carbonKeyCode)
+			hasher.combine(carbonModifiers)
+		}
+
 		/**
 		Initialize from a strongly-typed key and modifiers.
 		*/
