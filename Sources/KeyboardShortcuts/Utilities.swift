@@ -91,6 +91,7 @@ final class LocalEventMonitor {
 		}
 
 		NSEvent.removeMonitor(monitor)
+		self.monitor = nil
 	}
 }
 
