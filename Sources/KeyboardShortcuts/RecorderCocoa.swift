@@ -305,11 +305,17 @@ extension KeyboardShortcuts {
 				let clickPoint = convert(event.locationInWindow, from: nil)
 				let clickMargin = 3.0
 
-				if
-					event.type == .leftMouseUp || event.type == .rightMouseUp,
-					!bounds.insetBy(dx: -clickMargin, dy: -clickMargin).contains(clickPoint)
-				{
-					blur()
+				if event.type == .leftMouseUp || event.type == .rightMouseUp {
+					guard bounds.insetBy(dx: -clickMargin, dy: -clickMargin).contains(clickPoint) else {
+						blur()
+						return event
+					}
+
+					// A click *inside* the field must be passed through, not swallowed. It used to
+					// fall through to the `isKeyEvent` guard below and get consumed, which killed
+					// the buttons in the field: `NSSearchFieldCell` completes `_searchFieldCancel:`
+					// on mouseUp, so the X (and the info button, which is installed in the same
+					// slot) could be pressed but never fired.
 					return event
 				}
 
