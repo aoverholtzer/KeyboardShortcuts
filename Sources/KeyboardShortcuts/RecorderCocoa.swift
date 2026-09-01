@@ -308,7 +308,29 @@ extension KeyboardShortcuts {
 
 		@_documentation(visibility: private)
 		public func controlTextDidEndEditing(_ object: Notification) {
-			endRecording()
+			// AppKit posts this spuriously while editing is still active. `becomeFirstResponder`
+			// sets `showsCancelButton`, which mutates the cell's `cancelButtonCell` with the field
+			// editor installed; that ends and restarts editing, and the resulting notification can
+			// land *after* the key monitor is armed — tearing it down microseconds later. The
+			// recorder then looks focused but captures nothing, and keystrokes fall through to the
+			// search field as plain text.
+			//
+			// Deciding synchronously is not reliable in either direction: on the spurious
+			// notification the field editor is still installed, but on a genuine one AppKit has
+			// not necessarily moved first responder yet. Re-check on the next turn, once things
+			// have settled — by then a spurious end has already restarted editing, while a real
+			// one has left `currentEditor()` nil.
+			Task { @MainActor [weak self] in
+				guard let self else {
+					return
+				}
+
+				if let editor = currentEditor(), window?.firstResponder === editor {
+					return
+				}
+
+				endRecording()
+			}
 		}
 
 		@_documentation(visibility: private)
@@ -378,11 +400,17 @@ extension KeyboardShortcuts {
 				let clickPoint = convert(event.locationInWindow, from: nil)
 				let clickMargin = 3.0
 
-				if
-					event.type == .leftMouseUp || event.type == .rightMouseUp,
-					!bounds.insetBy(dx: -clickMargin, dy: -clickMargin).contains(clickPoint)
-				{
-					blur()
+				if event.type == .leftMouseUp || event.type == .rightMouseUp {
+					guard bounds.insetBy(dx: -clickMargin, dy: -clickMargin).contains(clickPoint) else {
+						blur()
+						return event
+					}
+
+					// A click *inside* the field must be passed through, not swallowed. It used to
+					// fall through to the `isKeyEvent` guard below and get consumed, which killed
+					// the clear button: `NSSearchFieldCell` completes `_searchFieldCancel:` on
+					// mouseUp, so the X could be pressed but never fired, and the field could only
+					// be cleared with the Delete key.
 					return event
 				}
 
