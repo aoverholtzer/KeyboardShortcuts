@@ -292,7 +292,13 @@ public enum KeyboardShortcuts {
 	*/
 	public static func reset(_ names: [Name]) {
 		for name in names {
-			setShortcut(name.defaultShortcut, for: name)
+			// Go through the `nil` path rather than passing `name.defaultShortcut` directly.
+			// Both restore the default, but only the `nil` path stamps `isDefault` on it — a
+			// direct set takes the plain-store branch and writes the default back unflagged,
+			// which then reads as a user-chosen shortcut (the recorder shows the clear button
+			// instead of treating it as a default). This makes `reset()` agree with clearing
+			// the recorder. Names without a default still reset to nothing, as before.
+			setShortcut(nil, for: name)
 		}
 	}
 
