@@ -69,7 +69,12 @@ eventMonitor = LocalEventMonitor(events: [.leftMouseDown, .rightMouseDown]) { ev
 final class LocalEventMonitor {
 	private let events: NSEvent.EventTypeMask
 	private let callback: (NSEvent) -> NSEvent?
-	private weak var monitor: AnyObject?
+	// Must be a STRONG reference. `NSEvent.addLocalMonitorForEvents` hands back an autoreleased
+	// token that the caller is required to own until it passes it to `removeMonitor`. Held
+	// weakly, nothing retains it, so it dies when the autorelease pool drains at the end of the
+	// current event-loop turn — taking the monitor with it. The recorder then looks focused but
+	// captures nothing, and keystrokes fall through to the search field as plain text.
+	private var monitor: AnyObject?
 
 	init(events: NSEvent.EventTypeMask, callback: @escaping (NSEvent) -> NSEvent?) {
 		self.events = events
