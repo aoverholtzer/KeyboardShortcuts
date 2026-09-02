@@ -640,7 +640,11 @@ public enum KeyboardShortcuts {
 	}
 
 	static func userDefaultsDidChange(name: Name) {
-		// TODO: Use proper UserDefaults observation instead of this.
+		/*
+		We broadcast changes manually instead of observing `UserDefaults` directly. This means observers only react to changes made through this package's API, not to direct or external writes to the underlying keys.
+
+		`UserDefaults` KVO was intentionally not adopted: the keys are dynamic per shortcut name, so it would require managing a per-key observer lifecycle, and its main benefit (cross-process observation for an App Group helper) requires a shared `UserDefaults` suite, which this package does not support.
+		*/
 		NotificationCenter.default.post(name: .shortcutByNameDidChange, object: nil, userInfo: [NotificationUserInfoKey.name: name])
 	}
 

@@ -69,7 +69,8 @@ eventMonitor = LocalEventMonitor(events: [.leftMouseDown, .rightMouseDown]) { ev
 final class LocalEventMonitor {
 	private let events: NSEvent.EventTypeMask
 	private let callback: (NSEvent) -> NSEvent?
-	private weak var monitor: AnyObject?
+	// Must be strong. The object returned by `addLocalMonitorForEvents` is owned by the caller and must be kept alive until it's passed to `removeMonitor`. It used to be weak, which worked only because AppKit happened to retain it internally. On some macOS 26/27 builds it was deallocated as soon as the autorelease pool drained, so the monitor silently stopped receiving events and `stop()` never removed it.
+	private var monitor: AnyObject?
 
 	init(events: NSEvent.EventTypeMask, callback: @escaping (NSEvent) -> NSEvent?) {
 		self.events = events
