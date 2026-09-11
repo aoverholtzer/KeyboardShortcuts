@@ -16,7 +16,7 @@ macOS 10.15+
 
 ## Version
 
-3.0.1
+3.1.0
 
 ## Install
 
