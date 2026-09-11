@@ -164,16 +164,6 @@ extension KeyboardShortcuts.Shortcut {
 	*/
 	@MainActor
 	func menuItemWithMatchingShortcut(in menu: NSMenu) -> NSMenuItem? {
-		menuItemsWithMatchingShortcut(in: menu).first
-	}
-
-	/**
-	Recursively finds all menu items in the given menu that have a matching key equivalent and modifier.
-	*/
-	@MainActor
-	func menuItemsWithMatchingShortcut(in menu: NSMenu) -> [NSMenuItem] {
-		var matchingMenuItems: [NSMenuItem] = []
-
 		for item in menu.items {
 			var keyEquivalent = item.keyEquivalent
 			var keyEquivalentModifierMask = item.keyEquivalentModifierMask
@@ -190,41 +180,36 @@ extension KeyboardShortcuts.Shortcut {
 				nsMenuItemKeyEquivalent == keyEquivalent, // Note `nil != ""`
 				modifiers == keyEquivalentModifierMask
 			{
-				matchingMenuItems.append(item)
+				return item
 			}
 
 			if
-				let submenu = item.submenu
+				let submenu = item.submenu,
+				let menuItem = menuItemWithMatchingShortcut(in: submenu)
 			{
-				matchingMenuItems.append(contentsOf: menuItemsWithMatchingShortcut(in: submenu))
+				return menuItem
 			}
 		}
 
-		return matchingMenuItems
+		return nil
 	}
 
 	/**
-	Returns a menu item in the app's main menu that has a matching key equivalent and modifier.
+	Returns a conflicting main-menu item when recording a different shortcut. Re-recording the current shortcut skips menu validation.
 	*/
 	@MainActor
-	var takenByMainMenu: NSMenuItem? {
-		guard let mainMenu = NSApp.mainMenu else {
+	func menuItemTakenByMainMenu(currentShortcut: Self?) -> NSMenuItem? {
+		/*
+		Accepting the unchanged shortcut introduces no new menu conflict. It may preserve an existing conflict with an unrelated item, which is an intentional tradeoff: do not track menu-item ownership just to revalidate an unchanged value. This also handles SwiftUI menu items whose displayed shortcut is stale while recording. System shortcut validation remains the recorder's responsibility, even for unchanged shortcuts.
+		*/
+		guard
+			self != currentShortcut,
+			let mainMenu = NSApp.mainMenu
+		else {
 			return nil
 		}
 
 		return menuItemWithMatchingShortcut(in: mainMenu)
-	}
-
-	/**
-	Returns all menu items in the app's main menu that have a matching key equivalent and modifier.
-	*/
-	@MainActor
-	var takenByMainMenuItems: [NSMenuItem] {
-		guard let mainMenu = NSApp.mainMenu else {
-			return []
-		}
-
-		return menuItemsWithMatchingShortcut(in: mainMenu)
 	}
 }
 

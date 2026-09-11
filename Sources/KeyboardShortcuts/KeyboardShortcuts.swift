@@ -45,9 +45,19 @@ public enum KeyboardShortcuts {
 	private static var isInitialized = false
 
 	/**
-	When `true`, event handlers will not be called for registered keyboard shortcuts.
+	When `true`, the registered keyboard shortcuts are temporarily unregistered so the key events reach the app instead of being consumed as hot keys.
+
+	This is used while recording so the user can press a shortcut that is already registered, for example, re-recording the current shortcut.
 	*/
-	static var isPaused = false
+	static var isPaused = false {
+		didSet {
+			guard isPaused != oldValue else {
+				return
+			}
+
+			updateHotKeyMode()
+		}
+	}
 
 	/**
 	Enable/disable monitoring of all keyboard shortcuts.
@@ -93,7 +103,8 @@ public enum KeyboardShortcuts {
 	}
 
 	private static func updateHotKeyMode() {
-		HotKeyCenter.shared.setEnabled(isEnabled)
+		// Carbon consumes the key press while its hot key remains registered. Suppressing callbacks alone would leave the recorder unable to receive the shortcut.
+		HotKeyCenter.shared.setEnabled(isEnabled && !isPaused)
 	}
 
 	private static var namesWithKeyHandlers: Set<Name> {

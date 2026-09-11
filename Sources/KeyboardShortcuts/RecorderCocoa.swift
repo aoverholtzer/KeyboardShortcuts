@@ -43,9 +43,6 @@ extension KeyboardShortcuts {
 		private var bindingShortcut: Shortcut?
 		private var canBecomeKey = false
 		private var eventMonitor: LocalEventMonitor?
-		// Stores the shortcut active when recording begins, so unchanged values can be compared against
-		// existing menu bindings and avoid self-conflicts for menu items bound to the same shortcut name.
-		private var shortcutBeforeRecording: Shortcut?
 		private var shortcutsNameChangeObserver: NSObjectProtocol?
 		private var windowDidResignKeyObserver: NSObjectProtocol?
 		private var windowDidBecomeKeyObserver: NSObjectProtocol?
@@ -302,7 +299,6 @@ extension KeyboardShortcuts {
 			placeholderString = "record_shortcut".localized
 			showsCancelButton = !stringValue.isEmpty
 			restoreCaret()
-			shortcutBeforeRecording = nil
 
 			guard Self.activeRecorder === self else {
 				return
@@ -414,7 +410,6 @@ extension KeyboardShortcuts {
 			placeholderString = "press_shortcut".localized
 			showsCancelButton = !stringValue.isEmpty
 			hideCaret()
-			shortcutBeforeRecording = currentShortcut
 			Self.activeRecorder = self
 			KeyboardShortcuts.isPaused = true // The position here matters.
 			NotificationCenter.default.post(name: .recorderActiveStatusDidChange, object: nil, userInfo: [NotificationUserInfoKey.isActive: true])
@@ -470,14 +465,7 @@ extension KeyboardShortcuts {
 					return nil
 				}
 
-				let matchingMenuItems = shortcut.takenByMainMenuItems
-				if let menuItem = Self.firstMenuItemRequiringConflictHandling(
-					matchingMenuItems: matchingMenuItems,
-					shortcut: shortcut,
-					shortcutBeforeRecording: shortcutBeforeRecording,
-					shortcutName: shortcutName,
-					usesNamedStorage: storageMode == .name
-				) {
+				if let menuItem = shortcut.menuItemTakenByMainMenu(currentShortcut: currentShortcut) {
 					let title = String.localizedStringWithFormat("keyboard_shortcut_used_by_menu_item".localized, menuItem.title)
 					// TODO: Find a better way to make it possible to dismiss the alert by pressing "Enter". How can we make the input automatically temporarily lose focus while the alert is open?
 					guard handleConflict(conflictPolicy.menuItem, title: title) else {
@@ -518,29 +506,6 @@ extension KeyboardShortcuts {
 		private func saveShortcut(_ shortcut: Shortcut?) {
 			storeShortcut(shortcut)
 			onChange?(shortcut)
-		}
-
-		/**
-		Returns the first conflicting menu item that should trigger conflict handling.
-		*/
-		@MainActor
-		static func firstMenuItemRequiringConflictHandling(
-			matchingMenuItems: [NSMenuItem],
-			shortcut: Shortcut,
-			shortcutBeforeRecording: Shortcut?,
-			shortcutName: Name,
-			usesNamedStorage: Bool
-		) -> NSMenuItem? {
-			matchingMenuItems.first { menuItem in
-				guard
-					usesNamedStorage,
-					shortcut == shortcutBeforeRecording
-				else {
-					return true
-				}
-
-				return menuItem.keyboardShortcutsBoundName != shortcutName
-			}
 		}
 
 		/**
