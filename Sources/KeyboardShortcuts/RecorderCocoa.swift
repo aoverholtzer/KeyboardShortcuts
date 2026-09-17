@@ -29,6 +29,9 @@ extension KeyboardShortcuts {
 	```
 	*/
 	public final class RecorderCocoa: NSSearchField, NSSearchFieldDelegate {
+		// The active recorder owns the shared paused state. A weak reference lets delayed cleanup distinguish stale recorders without extending their lifetime.
+		private static weak var activeRecorder: RecorderCocoa?
+
 		private enum StorageMode {
 			case name
 			case binding
@@ -40,9 +43,6 @@ extension KeyboardShortcuts {
 		private var bindingShortcut: Shortcut?
 		private var canBecomeKey = false
 		private var eventMonitor: LocalEventMonitor?
-		// Stores the shortcut active when recording begins, so unchanged values can be compared against
-		// existing menu bindings and avoid self-conflicts for menu items bound to the same shortcut name.
-		private var shortcutBeforeRecording: Shortcut?
 		private var shortcutsNameChangeObserver: NSObjectProtocol?
 		private var windowDidResignKeyObserver: NSObjectProtocol?
 		private var windowDidBecomeKeyObserver: NSObjectProtocol?
@@ -128,6 +128,37 @@ extension KeyboardShortcuts {
 			var size = super.intrinsicContentSize
 			size.width = minimumWidth
 			return size
+		}
+
+		// Center the text in the full field width, not just the area left of the cancel button. On macOS 27+, NSSearchField uses subviews for text layout: a clip view when focused and a label when not. Mirror the right-side inset (cancel button) to the left so center-aligned text is visually centered in the whole field.
+		@_documentation(visibility: private)
+		override public func layout() {
+			super.layout()
+
+			guard #available(macOS 27, *) else {
+				return
+			}
+
+			for subview in subviews {
+				let name = NSStringFromClass(type(of: subview))
+
+				guard name.contains("ClipView") || name.contains("SimpleLabel") else {
+					continue
+				}
+
+				let rightInset = bounds.width - subview.frame.maxX
+
+				guard rightInset > subview.frame.minX else {
+					continue
+				}
+
+				subview.frame = NSRect(
+					x: rightInset,
+					y: subview.frame.minY,
+					width: bounds.width - rightInset * 2,
+					height: subview.frame.height
+				)
+			}
 		}
 
 		private var cancelButton: NSButtonCell?
@@ -278,7 +309,12 @@ extension KeyboardShortcuts {
 			placeholderString = "record_shortcut".localized
 			showsCancelButton = !stringValue.isEmpty
 			restoreCaret()
-			shortcutBeforeRecording = nil
+
+			guard Self.activeRecorder === self else {
+				return
+			}
+
+			Self.activeRecorder = nil
 			KeyboardShortcuts.isPaused = false
 			NotificationCenter.default.post(name: .recorderActiveStatusDidChange, object: nil, userInfo: [NotificationUserInfoKey.isActive: false])
 		}
@@ -308,7 +344,25 @@ extension KeyboardShortcuts {
 
 		@_documentation(visibility: private)
 		public func controlTextDidEndEditing(_ object: Notification) {
-			endRecording()
+			// The window reuses its field editor, so restore the caret while this recorder still owns it. If AppKit restarts editing, the deferred check hides it again.
+			restoreCaret()
+
+			// AppKit (macOS 26 and later) ends and restarts editing internally, for example when the placeholder changes while the field editor is installed or when a click starts editing. Those restarts post this notification too, so deciding synchronously would end the recording right after it started. By the next turn, a restart has editing active again while a real end has removed the field editor.
+			Task { @MainActor [weak self] in
+				guard let self else {
+					return
+				}
+
+				if
+					let editor = currentEditor(),
+					window?.firstResponder === editor
+				{
+					hideCaret()
+					return
+				}
+
+				endRecording()
+			}
 		}
 
 		@_documentation(visibility: private)
@@ -366,7 +420,7 @@ extension KeyboardShortcuts {
 			placeholderString = "press_shortcut".localized
 			showsCancelButton = !stringValue.isEmpty
 			hideCaret()
-			shortcutBeforeRecording = currentShortcut
+			Self.activeRecorder = self
 			KeyboardShortcuts.isPaused = true // The position here matters.
 			NotificationCenter.default.post(name: .recorderActiveStatusDidChange, object: nil, userInfo: [NotificationUserInfoKey.isActive: true])
 
@@ -378,11 +432,12 @@ extension KeyboardShortcuts {
 				let clickPoint = convert(event.locationInWindow, from: nil)
 				let clickMargin = 3.0
 
-				if
-					event.type == .leftMouseUp || event.type == .rightMouseUp,
-					!bounds.insetBy(dx: -clickMargin, dy: -clickMargin).contains(clickPoint)
-				{
-					blur()
+				// Mouse up is monitored only to end recording when the user clicks outside the field. Mouse events are never swallowed: `NSSearchFieldCell` fires the cancel button on mouse up, so consuming a click inside the field would make the clear button do nothing.
+				if event.type == .leftMouseUp || event.type == .rightMouseUp {
+					if !isMousePoint(clickPoint, in: bounds.insetBy(dx: -clickMargin, dy: -clickMargin)) {
+						blur()
+					}
+
 					return event
 				}
 
@@ -421,14 +476,7 @@ extension KeyboardShortcuts {
 					return nil
 				}
 
-				let matchingMenuItems = shortcut.takenByMainMenuItems
-				if let menuItem = Self.firstMenuItemRequiringConflictHandling(
-					matchingMenuItems: matchingMenuItems,
-					shortcut: shortcut,
-					shortcutBeforeRecording: shortcutBeforeRecording,
-					shortcutName: shortcutName,
-					usesNamedStorage: storageMode == .name
-				) {
+				if let menuItem = shortcut.menuItemTakenByMainMenu(currentShortcut: currentShortcut) {
 					let title = String.localizedStringWithFormat("keyboard_shortcut_used_by_menu_item".localized, menuItem.title)
 					// TODO: Find a better way to make it possible to dismiss the alert by pressing "Enter". How can we make the input automatically temporarily lose focus while the alert is open?
 					guard handleConflict(conflictPolicy.menuItem, title: title) else {
@@ -469,29 +517,6 @@ extension KeyboardShortcuts {
 		private func saveShortcut(_ shortcut: Shortcut?) {
 			storeShortcut(shortcut)
 			onChange?(shortcut)
-		}
-
-		/**
-		Returns the first conflicting menu item that should trigger conflict handling.
-		*/
-		@MainActor
-		static func firstMenuItemRequiringConflictHandling(
-			matchingMenuItems: [NSMenuItem],
-			shortcut: Shortcut,
-			shortcutBeforeRecording: Shortcut?,
-			shortcutName: Name,
-			usesNamedStorage: Bool
-		) -> NSMenuItem? {
-			matchingMenuItems.first { menuItem in
-				guard
-					usesNamedStorage,
-					shortcut == shortcutBeforeRecording
-				else {
-					return true
-				}
-
-				return menuItem.keyboardShortcutsBoundName != shortcutName
-			}
 		}
 
 		/**

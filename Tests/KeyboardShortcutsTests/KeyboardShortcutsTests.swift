@@ -324,6 +324,20 @@ struct KeyboardShortcutsTests {
 		#expect(KeyboardShortcuts.getShortcut(for: name3) == nil)
 	}
 
+	@Test("Name equality and hashing are based only on rawValue")
+	func testNameEqualityIgnoresInitialShortcut() {
+		let withInitial = KeyboardShortcuts.Name("sameRawValue", initial: .init(.a))
+		let withoutInitial = KeyboardShortcuts.Name("sameRawValue")
+
+		// Identity is the rawValue (the `UserDefaults` storage key), so the initial shortcut must not affect equality or hashing.
+		#expect(withInitial == withoutInitial)
+		#expect(withInitial.hashValue == withoutInitial.hashValue)
+
+		// `storedNames` carries only the rawValue, but must still match a name created with an initial shortcut.
+		KeyboardShortcuts.setShortcut(.init(.b), for: withInitial)
+		#expect(KeyboardShortcuts.storedNames.contains(withInitial))
+	}
+
 	@Test("Reset all clears defaults")
 	func testResetAllClearsDefaults() {
 		let nameWithDefault = KeyboardShortcuts.Name("resetAllDefault", initial: .init(.a))
@@ -404,6 +418,41 @@ struct KeyboardShortcutsTests {
 		#expect(Self.canRegisterHotKey(for: shortcut))
 
 		KeyboardShortcuts.removeAllHandlers()
+	}
+
+	@Test
+	func `pausing unregisters hotkeys so the recorder can receive the current shortcut`() {
+		let shortcut = KeyboardShortcuts.Shortcut(.f20, modifiers: [.command, .option, .shift, .control])
+		let name = KeyboardShortcuts.Name("pauseRegistration-\(UUID().uuidString)", initial: shortcut)
+		let wasEnabled = KeyboardShortcuts.isEnabled
+		let wasPaused = KeyboardShortcuts.isPaused
+		defer {
+			KeyboardShortcuts.removeHandler(for: name)
+			KeyboardShortcuts.setShortcut(nil, for: name)
+			KeyboardShortcuts.isEnabled = wasEnabled
+			KeyboardShortcuts.isPaused = wasPaused
+		}
+
+		KeyboardShortcuts.isPaused = false
+		KeyboardShortcuts.isEnabled = true
+		KeyboardShortcuts.onKeyDown(for: name) {}
+		#expect(!Self.canRegisterHotKey(for: shortcut))
+
+		KeyboardShortcuts.isPaused = true
+		#expect(Self.canRegisterHotKey(for: shortcut))
+		#expect(Self.hotKeyCenterIsInDisabledMode())
+
+		KeyboardShortcuts.isEnabled = false
+		KeyboardShortcuts.isEnabled = true
+		#expect(Self.hotKeyCenterIsInDisabledMode())
+
+		KeyboardShortcuts.isEnabled = false
+		KeyboardShortcuts.isPaused = false
+		#expect(Self.hotKeyCenterIsInDisabledMode())
+
+		KeyboardShortcuts.isEnabled = true
+		#expect(!Self.canRegisterHotKey(for: shortcut))
+		#expect(Self.hotKeyCenterIsInNormalMode())
 	}
 
 	@Test("Resume failure drops hotkey registration")
@@ -1434,6 +1483,246 @@ struct KeyboardShortcutsTests {
 		})
 	}
 
+	@Test("Function-key shortcuts match raw key events that carry the Fn modifier", arguments: [false, true])
+	func testFunctionKeyRawEventMatchingIncludesFnModifier(registeredWithFunctionModifier: Bool) {
+		var registeredModifiers: NSEvent.ModifierFlags = [.command, .option, .shift, .control]
+		if registeredWithFunctionModifier {
+			registeredModifiers.insert(.function)
+		}
+
+		let shortcut = KeyboardShortcuts.Shortcut(.f17, modifiers: registeredModifiers)
+		var keyDownCount = 0
+
+		let hotKey = HotKey(
+			carbonKeyCode: shortcut.carbonKeyCode,
+			carbonModifiers: shortcut.carbonModifiers,
+			onKeyDown: {
+				keyDownCount += 1
+			},
+			onKeyUp: {}
+		)
+
+		#expect(hotKey != nil)
+
+		let liveModifiers = shortcut.carbonModifiers | NSEvent.ModifierFlags.function.carbon
+
+		let status = HotKeyCenter.shared.handleRawKeyEvent(
+			keyCode: shortcut.carbonKeyCode,
+			modifiers: liveModifiers,
+			isRepeat: false,
+			eventKind: kEventRawKeyDown
+		)
+
+		#expect(status == noErr)
+		#expect(keyDownCount == 1)
+
+		_ = hotKey
+	}
+
+	@Test
+	func `keypad Clear shortcuts match raw events with synthesized Fn`() {
+		let shortcut = KeyboardShortcuts.Shortcut(.keypadClear, modifiers: .control)
+		var keyDownCount = 0
+
+		let hotKey = HotKey(
+			carbonKeyCode: shortcut.carbonKeyCode,
+			carbonModifiers: shortcut.carbonModifiers,
+			onKeyDown: {
+				keyDownCount += 1
+			},
+			onKeyUp: {}
+		)
+
+		#expect(hotKey != nil)
+
+		let status = HotKeyCenter.shared.handleRawKeyEvent(
+			keyCode: shortcut.carbonKeyCode,
+			modifiers: shortcut.carbonModifiers | NSEvent.ModifierFlags.function.carbon,
+			isRepeat: false,
+			eventKind: kEventRawKeyDown
+		)
+
+		#expect(status == noErr)
+		#expect(keyDownCount == 1)
+
+		_ = hotKey
+	}
+
+	@Test
+	func `raw event matching preserves explicit Fn for keypad Enter`() {
+		let shortcut = KeyboardShortcuts.Shortcut(.keypadEnter, modifiers: [.function, .control])
+		var keyDownCount = 0
+
+		let hotKey = HotKey(
+			carbonKeyCode: shortcut.carbonKeyCode,
+			carbonModifiers: shortcut.carbonModifiers,
+			onKeyDown: {
+				keyDownCount += 1
+			},
+			onKeyUp: {}
+		)
+
+		#expect(hotKey != nil)
+
+		let statusWithoutFunctionModifier = HotKeyCenter.shared.handleRawKeyEvent(keyCode: shortcut.carbonKeyCode, modifiers: controlKey, isRepeat: false, eventKind: kEventRawKeyDown)
+		let statusWithFunctionModifier = HotKeyCenter.shared.handleRawKeyEvent(keyCode: shortcut.carbonKeyCode, modifiers: shortcut.carbonModifiers, isRepeat: false, eventKind: kEventRawKeyDown)
+
+		#expect(statusWithoutFunctionModifier == OSStatus(eventNotHandledErr))
+		#expect(statusWithFunctionModifier == noErr)
+		#expect(keyDownCount == 1)
+
+		_ = hotKey
+	}
+
+	@Test
+	func `generic shortcuts preserve the Fn modifier`() {
+		let functionModifier = NSEvent.ModifierFlags.function.carbon
+		let shortcut = KeyboardShortcuts.Shortcut(carbonKeyCode: kVK_ANSI_C, carbonModifiers: functionModifier | controlKey)
+
+		#expect(shortcut == KeyboardShortcuts.Shortcut(.c, modifiers: [.function, .control]))
+		#expect(shortcut != KeyboardShortcuts.Shortcut(.c, modifiers: .control))
+	}
+
+	@Test
+	func `event shortcuts strip Fn modifiers`() throws {
+		let functionKeyEvent = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.function, .control], timestamp: 0, windowNumber: 0, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: UInt16(kVK_F12)))
+		let ordinaryKeyEvent = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.function, .control], timestamp: 0, windowNumber: 0, context: nil, characters: "c", charactersIgnoringModifiers: "c", isARepeat: false, keyCode: UInt16(kVK_ANSI_C)))
+
+		#expect(KeyboardShortcuts.Shortcut(event: functionKeyEvent) == KeyboardShortcuts.Shortcut(.f12, modifiers: .control))
+		#expect(KeyboardShortcuts.Shortcut(event: ordinaryKeyEvent) == KeyboardShortcuts.Shortcut(.c, modifiers: .control))
+	}
+
+	@Test
+	func `system shortcuts normalize Fn only for intrinsic keys`() {
+		let functionModifier = NSEvent.ModifierFlags.function.carbon
+		let intrinsicKeyCodes = KeyboardShortcuts.Key.functionKeys.map(\.rawValue) + [
+			kVK_ANSI_KeypadClear,
+			kVK_Help,
+			kVK_ForwardDelete,
+			kVK_Home,
+			kVK_End,
+			kVK_PageUp,
+			kVK_PageDown,
+			kVK_UpArrow,
+			kVK_RightArrow,
+			kVK_DownArrow,
+			kVK_LeftArrow
+		]
+
+		for keyCode in intrinsicKeyCodes {
+			let shortcut = KeyboardShortcuts.Shortcut(carbonKeyCode: keyCode, carbonModifiers: functionModifier | controlKey).removingSynthesizedFunctionModifier
+			#expect(shortcut.modifiers == .control)
+		}
+
+		let ordinaryShortcut = KeyboardShortcuts.Shortcut(carbonKeyCode: kVK_ANSI_C, carbonModifiers: functionModifier | controlKey).removingSynthesizedFunctionModifier
+		#expect(ordinaryShortcut.modifiers == [.function, .control])
+	}
+
+	@Test
+	func `raw event matching preserves Fn for ordinary keys`() {
+		let shortcut = KeyboardShortcuts.Shortcut(.c, modifiers: [.function, .control])
+		var keyDownCount = 0
+
+		let hotKey = HotKey(
+			carbonKeyCode: shortcut.carbonKeyCode,
+			carbonModifiers: shortcut.carbonModifiers,
+			onKeyDown: {
+				keyDownCount += 1
+			},
+			onKeyUp: {}
+		)
+
+		#expect(hotKey != nil)
+
+		let statusWithoutFunctionModifier = HotKeyCenter.shared.handleRawKeyEvent(keyCode: shortcut.carbonKeyCode, modifiers: controlKey, isRepeat: false, eventKind: kEventRawKeyDown)
+		let statusWithFunctionModifier = HotKeyCenter.shared.handleRawKeyEvent(keyCode: shortcut.carbonKeyCode, modifiers: shortcut.carbonModifiers, isRepeat: false, eventKind: kEventRawKeyDown)
+
+		#expect(statusWithoutFunctionModifier == OSStatus(eventNotHandledErr))
+		#expect(statusWithFunctionModifier == noErr)
+		#expect(keyDownCount == 1)
+
+		_ = hotKey
+	}
+
+	@Test
+	func `run-loop event monitor preserves unconsumed event order`() throws {
+		// Warm up the event system, as the first `nextEvent` call in a process returns `nil` even when an event is queued.
+		_ = NSApplication.shared.nextEvent(matching: .any, until: nil, inMode: .eventTracking, dequeue: false)
+
+		let firstKeyEvent = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, characters: "a", charactersIgnoringModifiers: "a", isARepeat: false, keyCode: UInt16(kVK_ANSI_A)))
+		let secondKeyEvent = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, characters: "b", charactersIgnoringModifiers: "b", isARepeat: false, keyCode: UInt16(kVK_ANSI_B)))
+		let mouseEvent = try #require(NSEvent.mouseEvent(with: .mouseMoved, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
+		let keyUpEvent = try #require(NSEvent.keyEvent(with: .keyUp, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, characters: "a", charactersIgnoringModifiers: "a", isARepeat: false, keyCode: UInt16(kVK_ANSI_A)))
+		let queuedEvents = [firstKeyEvent, secondKeyEvent, mouseEvent, keyUpEvent]
+		var handledKeyCodes = [UInt16]()
+
+		let monitor = RunLoopLocalEventMonitor(events: [.keyDown, .keyUp], runLoopMode: .eventTracking) { event in
+			handledKeyCodes.append(event.keyCode)
+			return event
+		}
+		monitor.start()
+		defer {
+			monitor.stop()
+		}
+
+		for event in queuedEvents.reversed() {
+			NSApp.postEvent(event, atStart: true)
+		}
+
+		RunLoop.current.run(mode: .eventTracking, before: Date(timeIntervalSinceNow: 0.2))
+		monitor.stop()
+
+		#expect(handledKeyCodes.starts(with: [UInt16(kVK_ANSI_A), UInt16(kVK_ANSI_B)]))
+
+		var remainingEvents = [NSEvent]()
+		for _ in queuedEvents {
+			if let event = NSApp.nextEvent(matching: .any, until: nil, inMode: .eventTracking, dequeue: true) {
+				remainingEvents.append(event)
+			}
+		}
+
+		#expect(remainingEvents.map(\.type) == queuedEvents.map(\.type))
+		#expect(remainingEvents.filter(\.isKeyEvent).map(\.keyCode) == queuedEvents.filter(\.isKeyEvent).map(\.keyCode))
+	}
+
+	@Test
+	func `run-loop event monitor handles matching events and leaves others queued`() throws {
+		// Warm up the event system, as the first `nextEvent` call in a process returns `nil` even when an event is queued.
+		_ = NSApplication.shared.nextEvent(matching: .any, until: nil, inMode: .eventTracking, dequeue: false)
+
+		let keyEvent = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, characters: "a", charactersIgnoringModifiers: "a", isARepeat: false, keyCode: UInt16(kVK_ANSI_A)))
+		let mouseEvent = try #require(NSEvent.mouseEvent(with: .mouseMoved, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
+
+		var handledKeyCodes = [UInt16]()
+
+		let monitor = RunLoopLocalEventMonitor(events: [.keyDown], runLoopMode: .eventTracking) { event in
+			handledKeyCodes.append(event.keyCode)
+			// Consume the event.
+			return nil
+		}
+
+		monitor.start()
+		defer {
+			monitor.stop()
+		}
+
+		NSApp.postEvent(mouseEvent, atStart: false)
+		NSApp.postEvent(keyEvent, atStart: false)
+		RunLoop.current.run(mode: .eventTracking, before: Date(timeIntervalSinceNow: 0.2))
+
+		#expect(handledKeyCodes.isEmpty)
+
+		// The non-matching mouse event was left untouched in the queue, so it is never dequeued or re-posted.
+		let remainingEvent = NSApp.nextEvent(matching: .any, until: nil, inMode: .eventTracking, dequeue: true)
+		#expect(remainingEvent?.type == .mouseMoved)
+
+		RunLoop.current.run(mode: .eventTracking, before: Date(timeIntervalSinceNow: 0.2))
+
+		// The matching key event was handled and consumed after the blocking mouse event was removed.
+		#expect(handledKeyCodes == [UInt16(kVK_ANSI_A)])
+		#expect(NSApp.nextEvent(matching: .keyDown, until: nil, inMode: .eventTracking, dequeue: true) == nil)
+	}
+
 	@Test("Repeated raw key down events are ignored")
 	func testRepeatedRawKeyDownEventsAreIgnored() {
 		let shortcut = KeyboardShortcuts.Shortcut(.f17, modifiers: [.command, .option, .shift, .control])
@@ -1520,70 +1809,32 @@ struct KeyboardShortcutsTests {
 		KeyboardShortcuts.removeAllHandlers()
 	}
 
-	@Test("Recorder ignores unchanged conflicts for its own AppKit-bound menu item")
-	@MainActor
-	func testRecorderIgnoresUnchangedConflictsForOwnAppKitBoundMenuItem() {
-		let name = KeyboardShortcuts.Name("recorderOwnAppKitMenuItem")
-		let shortcut = KeyboardShortcuts.Shortcut(.t, modifiers: [.command])
+	@Test(arguments: [false, true])
+	func `recording the current shortcut ignores menu conflicts regardless of ownership`(usesNamedBinding: Bool) {
+		let application = NSApplication.shared
+		let previousMenu = application.mainMenu
+		let name = KeyboardShortcuts.Name("recorderMenuConflict-\(UUID().uuidString)")
+		let shortcut = KeyboardShortcuts.Shortcut(.f19, modifiers: [.command, .option])
+		defer {
+			application.mainMenu = previousMenu
+			KeyboardShortcuts.setShortcut(nil, for: name)
+		}
+
 		KeyboardShortcuts.setShortcut(shortcut, for: name)
+		let menu = NSMenu()
+		let menuItem = NSMenuItem()
+		if usesNamedBinding {
+			menuItem.setShortcut(for: name)
+		} else {
+			menuItem.setShortcut(shortcut)
+		}
+		menu.addItem(menuItem)
+		application.mainMenu = menu
 
-		let ownMenuItem = NSMenuItem()
-		ownMenuItem.setShortcut(for: name)
-
-		let conflictingMenuItem = KeyboardShortcuts.RecorderCocoa.firstMenuItemRequiringConflictHandling(
-			matchingMenuItems: [ownMenuItem],
-			shortcut: shortcut,
-			shortcutBeforeRecording: shortcut,
-			shortcutName: name,
-			usesNamedStorage: true
-		)
-
-		#expect(conflictingMenuItem == nil)
-	}
-
-	@Test("Recorder preserves conflict checks for unchanged shortcuts when another menu item conflicts")
-	@MainActor
-	func testRecorderPreservesConflictChecksForUnchangedShortcutsWithRealMenuConflicts() {
-		let name = KeyboardShortcuts.Name("recorderRealMenuConflict")
-		let shortcut = KeyboardShortcuts.Shortcut(.t, modifiers: [.command])
-		KeyboardShortcuts.setShortcut(shortcut, for: name)
-
-		let ownMenuItem = NSMenuItem()
-		ownMenuItem.setShortcut(for: name)
-
-		let otherMenuItem = NSMenuItem()
-		otherMenuItem.keyEquivalent = "t"
-		otherMenuItem.keyEquivalentModifierMask = [.command]
-
-		let conflictingMenuItem = KeyboardShortcuts.RecorderCocoa.firstMenuItemRequiringConflictHandling(
-			matchingMenuItems: [ownMenuItem, otherMenuItem],
-			shortcut: shortcut,
-			shortcutBeforeRecording: shortcut,
-			shortcutName: name,
-			usesNamedStorage: true
-		)
-
-		#expect(conflictingMenuItem === otherMenuItem)
-	}
-
-	@Test("Recorder preserves conflict checks in binding mode for unchanged shortcuts")
-	@MainActor
-	func testRecorderPreservesConflictChecksInBindingModeForUnchangedShortcuts() {
-		let name = KeyboardShortcuts.Name("recorderBindingModeConflict")
-		let shortcut = KeyboardShortcuts.Shortcut(.t, modifiers: [.command])
-
-		let ownMenuItem = NSMenuItem()
-		ownMenuItem.setShortcut(for: name)
-
-		let conflictingMenuItem = KeyboardShortcuts.RecorderCocoa.firstMenuItemRequiringConflictHandling(
-			matchingMenuItems: [ownMenuItem],
-			shortcut: shortcut,
-			shortcutBeforeRecording: shortcut,
-			shortcutName: name,
-			usesNamedStorage: false
-		)
-
-		#expect(conflictingMenuItem === ownMenuItem)
+		#expect(shortcut.menuItemWithMatchingShortcut(in: menu) === menuItem)
+		#expect(shortcut.menuItemTakenByMainMenu(currentShortcut: shortcut) == nil)
+		#expect(shortcut.menuItemTakenByMainMenu(currentShortcut: .init(.f18, modifiers: [.command])) === menuItem)
+		#expect(shortcut.menuItemTakenByMainMenu(currentShortcut: nil) === menuItem)
 	}
 
 	@Test("NSMenuItem preserves original key equivalent when no global shortcut is set")
@@ -1709,13 +1960,12 @@ struct KeyboardShortcutsTests {
 		#expect(menuItem.keyEquivalentModifierMask == .option)
 	}
 
-	@Test("NSMenuItem dynamic shortcut detaches existing name binding observer")
-	@MainActor
-	func testNSMenuItemDynamicShortcutDetachesExistingNameBindingObserver() async {
+	@Test(arguments: [false, true])
+	func `setting a dynamic shortcut detaches the previous named observer`(clearsShortcut: Bool) async {
 		let name = KeyboardShortcuts.Name("menuItemDetachesNameBindingObserver")
 		let shortcut1 = KeyboardShortcuts.Shortcut(.a, modifiers: [.command])
 		let shortcut2 = KeyboardShortcuts.Shortcut(.b, modifiers: [.command])
-		let dynamicShortcut = KeyboardShortcuts.Shortcut(.z, modifiers: [.shift])
+		let dynamicShortcut: KeyboardShortcuts.Shortcut? = clearsShortcut ? nil : .init(.z, modifiers: [.shift])
 
 		KeyboardShortcuts.setShortcut(shortcut1, for: name)
 
@@ -1725,15 +1975,15 @@ struct KeyboardShortcutsTests {
 		#expect(menuItem.keyEquivalentModifierMask == .command)
 
 		menuItem.setShortcut(dynamicShortcut)
-		#expect(menuItem.keyEquivalent == "z")
-		#expect(menuItem.keyEquivalentModifierMask == .shift)
+		#expect(menuItem.keyEquivalent == (clearsShortcut ? "" : "z"))
+		#expect(menuItem.keyEquivalentModifierMask == (clearsShortcut ? [] : .shift))
 
 		KeyboardShortcuts.setShortcut(shortcut2, for: name)
 
 		try? await Task.sleep(for: .milliseconds(50))
 
-		#expect(menuItem.keyEquivalent == "z")
-		#expect(menuItem.keyEquivalentModifierMask == .shift)
+		#expect(menuItem.keyEquivalent == (clearsShortcut ? "" : "z"))
+		#expect(menuItem.keyEquivalentModifierMask == (clearsShortcut ? [] : .shift))
 	}
 
 	@Test("Localization files are valid")
